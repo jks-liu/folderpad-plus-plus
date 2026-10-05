@@ -9,9 +9,13 @@
 | install.ps1 | 核对 PE 位数后复制 DLL，已有 DLL 备份为 .bak | `./tools/install.ps1 -NotepadDirectory C:/Apps/Notepad++` |
 | smoke-test.py | 复制宿主到独立测试目录，执行跨进程真实 GUI/API 测试 | `python tools/smoke-test.py --notepad-dir "C:/Program Files/Notepad++"` |
 | package.ps1 | 将当前 x64 DLL 及对应完整源码分别打包 | `./tools/package.ps1` |
+| version-bump.ps1 | 默认升级 patch，可选构建打包；current 只读 | `./tools/version-bump.ps1 minor -Build` |
+| version-lib.ps1 | 共享版本解析函数 | 由其它脚本加载 |
 
 `build.ps1` 默认自动查找 `.cache/toolchain` 下的工具链；`-Arch` 可选 `x86_64`、`i686`、`aarch64`。只有 x64 自动执行测试。
 
 宿主测试需要 64 位 Python（仅使用标准库），通过 PID 限定窗口并读取测试进程内控件；不扫描或操作用户已有 Notepad++ 实例。测试样例、配置和报告保留在 `build/smoke-*`，可检查后手动清理。
 
 安装到 Program Files 需要管理员权限。首次安装允许宿主继续运行，下次启动加载；更新已有 DLL 时须先保存文档并关闭对应宿主。
+
+版本命令见 README。`python tests/version_tests.py` 在临时目录验证 CLI，不改工作区版本。打包会比对 DLL ProductVersion 和 `src/version.h`，并创建独立打包目录，防止混入旧文件。

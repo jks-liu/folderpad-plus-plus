@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <windowsx.h>
 #include <commctrl.h>
 #include <shobjidl.h>
 #include <filesystem>
@@ -11,12 +12,13 @@
 #include "Docking.h"
 #include "dockingResource.h"
 #include "model.h"
+#include "version.h"
 
 namespace {
 HINSTANCE module;
 NppData host;
-FuncItem commands[3];
-HWND panel, tabs, files, addButton, removeButton, languageBox, pathLabel, emptyLabel;
+FuncItem commands[4];
+HWND panel, tabs, files, addButton, removeButton, pathLabel, emptyLabel;
 HFONT font;
 std::wstring config;
 std::vector<std::wstring> folders;
@@ -83,8 +85,7 @@ void layout() {
     int half = std::max(1, (w - 3 * gap) / 2);
     MoveWindow(addButton, gap, gap, half, row, TRUE);
     MoveWindow(removeButton, 2 * gap + half, gap, half, row, TRUE);
-    MoveWindow(languageBox, gap, row + 2 * gap, std::max(1, w - 2 * gap), row * 6, TRUE);
-    int top = 2 * row + 3 * gap;
+    int top = row + 2 * gap;
     MoveWindow(tabs, gap, top, std::max(1, w - 2 * gap), std::max(1, h - top - gap), TRUE);
     RECT inner{}; GetClientRect(tabs, &inner); TabCtrl_AdjustRect(tabs, FALSE, &inner);
     MapWindowPoints(tabs, panel, reinterpret_cast<POINT*>(&inner), 2);
@@ -93,6 +94,10 @@ void layout() {
     MoveWindow(files, inner.left + 4, listTop, std::max(1L, inner.right - inner.left - 8), std::max(1L, inner.bottom - listTop - 4), TRUE);
     MoveWindow(emptyLabel, inner.left + 10, listTop + row, std::max(1L, inner.right - inner.left - 20), row * 3, TRUE);
     ListView_SetColumnWidth(files, 0, std::max(30L, inner.right - inner.left - 28));
+    // Tab and page controls are siblings. Keep the tab background behind the
+    // page, otherwise resizing/repainting the tab covers the file list.
+    SetWindowPos(tabs, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    RedrawWindow(panel, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 void renderRows() {
     rebuilding = true;
@@ -162,10 +167,109 @@ void translate() {
     detectLanguage();
     SetWindowTextW(addButton, tr(L"Add folder...", L"添加文件夹…"));
     SetWindowTextW(removeButton, tr(L"Remove tab", L"移除标签"));
-    SendMessageW(languageBox, CB_RESETCONTENT, 0, 0);
-    for (const auto* s : {tr(L"Language: follow Notepad++", L"语言：跟随 Notepad++"), L"English", L"简体中文"}) SendMessageW(languageBox, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(s));
-    SendMessageW(languageBox, CB_SETCURSEL, language, 0);
     refresh(false);
+}
+INT_PTR CALLBACK settingsProc(HWND hwnd, UINT msg, WPARAM w, LPARAM) {
+    if (msg == WM_INITDIALOG) {
+        SetWindowTextW(hwnd, tr(L"folderpad++ Settings", L"folderpad++ 设置"));
+        SetDlgItemTextW(hwnd, 301, tr(L"Language:", L"语言："));
+        SetDlgItemTextW(hwnd, IDOK, tr(L"OK", L"确定"));
+        SetDlgItemTextW(hwnd, IDCANCEL, tr(L"Cancel", L"取消"));
+        HWND combo = GetDlgItem(hwnd, 302);
+        for (const auto* s : {tr(L"Follow Notepad++", L"跟随 Notepad++"), L"English", L"简体中文"})
+            SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(s));
+        SendMessageW(combo, CB_SETCURSEL, language, 0);
+        RECT owner{}, dialog{};
+        GetWindowRect(host._nppHandle, &owner); GetWindowRect(hwnd, &dialog);
+        SetWindowPos(hwnd, nullptr, owner.left + (owner.right - owner.left - dialog.right + dialog.left) / 2,
+                     owner.top + (owner.bottom - owner.top - dialog.bottom + dialog.top) / 2,
+                     0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        return TRUE;
+    }
+    if (msg == WM_COMMAND) {
+        if (LOWORD(w) == IDOK) {
+            int choice = static_cast<int>(SendDlgItemMessageW(hwnd, 302, CB_GETCURSEL, 0, 0));
+            if (choice < 0 || choice > 2) return TRUE;
+            int previous = language; language = choice;
+            if (!save()) { language = previous; return TRUE; }
+            translate(); EndDialog(hwnd, IDOK); return TRUE;
+        }
+        if (LOWORD(w) == IDCANCEL) { EndDialog(hwnd, IDCANCEL); return TRUE; }
+    }
+    if (msg == WM_CLOSE) { EndDialog(hwnd, IDCANCEL); return TRUE; }
+    return FALSE;
+}
+void settings() {
+    if (DialogBoxParamW(module, MAKEINTRESOURCEW(102), host._nppHandle, settingsProc, 0) == -1)
+        error(L"Cannot open settings.", L"无法打开设置窗口。");
+}
+
+void openFiles(const std::wstring& folder) {
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    IFileOpenDialog* dialog = nullptr;
+    HRESULT result = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    std::vector<std::wstring> selected;
+    if (SUCCEEDED(result)) {
+        DWORD flags = 0; result = dialog->GetOptions(&flags);
+        if (SUCCEEDED(result)) result = dialog->SetOptions(flags | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_ALLOWMULTISELECT | FOS_NOCHANGEDIR);
+        dialog->SetTitle(tr(L"Open files", L"打开文件"));
+        const COMDLG_FILTERSPEC filters[]{{tr(L"All files", L"所有文件"), L"*.*"}};
+        dialog->SetFileTypes(1, filters);
+        if (SUCCEEDED(result) && !folder.empty()) {
+            IShellItem* item = nullptr;
+            result = SHCreateItemFromParsingName(folder.c_str(), nullptr, IID_PPV_ARGS(&item));
+            if (SUCCEEDED(result)) {
+                // SetFolder overrides the shell's remembered location on every invocation.
+                result = dialog->SetFolder(item); item->Release();
+            }
+        }
+        if (SUCCEEDED(result)) result = dialog->Show(host._nppHandle);
+        if (SUCCEEDED(result)) {
+            IShellItemArray* items = nullptr;
+            result = dialog->GetResults(&items);
+            if (SUCCEEDED(result)) {
+                DWORD count = 0; result = items->GetCount(&count);
+                for (DWORD i = 0; SUCCEEDED(result) && i < count; ++i) {
+                    IShellItem* item = nullptr; result = items->GetItemAt(i, &item);
+                    if (SUCCEEDED(result)) {
+                        PWSTR path = nullptr; result = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
+                        if (SUCCEEDED(result)) { selected.emplace_back(path); CoTaskMemFree(path); }
+                        item->Release();
+                    }
+                }
+                items->Release();
+            }
+        }
+        dialog->Release();
+    }
+    if (SUCCEEDED(init)) CoUninitialize();
+    if (FAILED(result)) {
+        if (result != HRESULT_FROM_WIN32(ERROR_CANCELLED))
+            error(L"Cannot open the file picker in this folder. Check that the folder is accessible.", L"无法在此文件夹中打开文件选择窗口，请检查目录是否可访问。");
+        return;
+    }
+    bool failed = false;
+    for (const auto& path : selected) if (!npp(NPPM_DOOPEN, 0, reinterpret_cast<LPARAM>(path.c_str()))) failed = true;
+    if (failed) error(L"Some selected files could not be opened.", L"部分所选文件无法打开。");
+}
+LRESULT CALLBACK tabProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
+    if (msg == WM_RBUTTONUP || msg == WM_CONTEXTMENU) {
+        int index;
+        if (msg == WM_CONTEXTMENU && l == -1) index = TabCtrl_GetCurSel(hwnd);
+        else {
+            TCHITTESTINFO hit{}; hit.pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+            if (msg == WM_CONTEXTMENU) ScreenToClient(hwnd, &hit.pt);
+            index = TabCtrl_HitTest(hwnd, &hit);
+        }
+        if (index >= 0 && index <= static_cast<int>(folders.size())) {
+            const auto folder = index < static_cast<int>(folders.size()) ? folders[index] : std::wstring{};
+            TabCtrl_SetCurSel(hwnd, index); layout(); renderRows();
+            openFiles(folder);
+        }
+        return 0;
+    }
+    if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, tabProc, 1);
+    return DefSubclassProc(hwnd, msg, w, l);
 }
 void queueRefresh(bool follow) { if (panel) { followPending |= follow; SetTimer(panel, refreshTimer, 30, nullptr); } }
 void activateRow() {
@@ -217,18 +321,19 @@ INT_PTR CALLBACK dialogProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         panel = hwnd;
         font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
         auto control = [&](const wchar_t* cls, DWORD style, int id) {
-            HWND c = CreateWindowExW(0, cls, L"", WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), module, nullptr);
+            HWND c = CreateWindowExW(0, cls, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | style, 0, 0, 1, 1, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), module, nullptr);
             SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE); return c;
         };
         addButton = control(L"BUTTON", WS_TABSTOP | BS_PUSHBUTTON, 201);
         removeButton = control(L"BUTTON", WS_TABSTOP | BS_PUSHBUTTON, 202);
-        languageBox = control(L"COMBOBOX", WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 203);
         tabs = control(WC_TABCONTROLW, WS_TABSTOP | WS_CLIPSIBLINGS | TCS_MULTILINE, 204);
+        SetWindowSubclass(tabs, tabProc, 1, 0);
         pathLabel = control(L"STATIC", SS_PATHELLIPSIS, 205);
         files = control(WC_LISTVIEWW, WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS, 206);
         ListView_SetExtendedListViewStyle(files, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
         LVCOLUMNW col{}; col.mask = LVCF_WIDTH; col.cx = 250; ListView_InsertColumn(files, 0, &col);
         emptyLabel = control(L"STATIC", SS_CENTER, 207);
+        SetWindowPos(emptyLabel, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         translate(); return TRUE;
     }
     case WM_SIZE: layout(); return TRUE;
@@ -240,14 +345,12 @@ INT_PTR CALLBACK dialogProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         else if (LOWORD(w) == 202) {
             int group = selectedGroup();
             if (group >= 0) { folders.erase(folders.begin() + group); save(); refresh(true); }
-        } else if (LOWORD(w) == 203 && HIWORD(w) == CBN_SELCHANGE) {
-            language = static_cast<int>(SendMessageW(languageBox, CB_GETCURSEL, 0, 0)); translate(); save();
         }
         return TRUE;
     case WM_NOTIFY: {
         auto* nm = reinterpret_cast<NMHDR*>(l);
         if (nm->code == DMN_CLOSE) { visible = false; save(); npp(NPPM_SETMENUITEMCHECK, commands[0]._cmdID, FALSE); return TRUE; }
-        if (nm->hwndFrom == tabs && nm->code == TCN_SELCHANGE) { renderRows(); return TRUE; }
+        if (nm->hwndFrom == tabs && nm->code == TCN_SELCHANGE) { layout(); renderRows(); return TRUE; }
         if (nm->hwndFrom == files && (nm->code == NM_CLICK || nm->code == NM_DBLCLK)) { activateRow(); return TRUE; }
         if (nm->hwndFrom == files && nm->code == LVN_KEYDOWN) {
             auto* key = reinterpret_cast<NMLVKEYDOWN*>(l);
@@ -277,7 +380,7 @@ void togglePanel() {
     if (!panel || !visible) showPanel();
     else { visible = false; npp(NPPM_DMMHIDE, 0, reinterpret_cast<LPARAM>(panel)); npp(NPPM_SETMENUITEMCHECK, commands[0]._cmdID, FALSE); save(); }
 }
-void about() { MessageBoxW(host._nppHandle, tr(L"folderpad++ 1.0.0\nOrganize open documents by folder.\nFolders are never scanned.\nGPL-3.0-or-later", L"folderpad++ 1.0.0\n按文件夹组织已打开文档，不扫描文件夹。\n移除标签不会关闭或删除文件。\nGPL-3.0-or-later"), L"folderpad++", MB_OK); }
+void about() { MessageBoxW(host._nppHandle, tr(L"folderpad++ " FOLDERPAD_VERSION_WSTRING L"\nOrganize open documents by folder.\nFolders are never scanned.\nGPL-3.0-or-later", L"folderpad++ " FOLDERPAD_VERSION_WSTRING L"\n按文件夹组织已打开文档，不扫描文件夹。\n移除标签不会关闭或删除文件。\nGPL-3.0-or-later"), L"folderpad++", MB_OK); }
 }
 
 BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) { if (reason == DLL_PROCESS_ATTACH) { module = h; DisableThreadLibraryCalls(h); } return TRUE; }
@@ -285,11 +388,11 @@ extern "C" __declspec(dllexport) BOOL isUnicode() { return TRUE; }
 extern "C" __declspec(dllexport) const wchar_t* getName() { return L"folderpad++"; }
 extern "C" __declspec(dllexport) void setInfo(NppData data) {
     host = data;
-    const wchar_t* names[]{L"Show / Hide panel | 显示 / 隐藏面板", L"Add folder... | 添加文件夹…", L"About | 关于"};
-    PFUNCPLUGINCMD funcs[]{togglePanel, addFolder, about};
-    for (int i = 0; i < 3; ++i) { lstrcpynW(commands[i]._itemName, names[i], menuItemSize); commands[i]._pFunc = funcs[i]; }
+    const wchar_t* names[]{L"Show / Hide panel | 显示 / 隐藏面板", L"Add folder... | 添加文件夹…", L"About | 关于", L"Settings... | 设置…"};
+    PFUNCPLUGINCMD funcs[]{togglePanel, addFolder, about, settings};
+    for (int i = 0; i < 4; ++i) { lstrcpynW(commands[i]._itemName, names[i], menuItemSize); commands[i]._pFunc = funcs[i]; }
 }
-extern "C" __declspec(dllexport) FuncItem* getFuncsArray(int* count) { *count = 3; return commands; }
+extern "C" __declspec(dllexport) FuncItem* getFuncsArray(int* count) { *count = 4; return commands; }
 extern "C" __declspec(dllexport) LRESULT messageProc(UINT, WPARAM, LPARAM) { return TRUE; }
 extern "C" __declspec(dllexport) void beNotified(SCNotification* notification) {
     if (!notification) return;

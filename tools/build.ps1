@@ -2,6 +2,8 @@ param([string]$Toolchain, [ValidateSet('x86_64','i686','aarch64')][string]$Arch 
 # Build with llvm-mingw. Example: ./tools/build.ps1 -Toolchain C:/tools/llvm-mingw
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+. "$PSScriptRoot/version-lib.ps1"
+$version = Get-FolderpadVersion $root
 if (-not $Toolchain) {
     $found = Get-ChildItem "$root/.cache/toolchain" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { $Toolchain = $found.FullName }
@@ -23,4 +25,4 @@ if ($Arch -eq 'x86_64') {
     & "$out/model_tests.exe"
     if ($LASTEXITCODE) { throw 'Model tests failed' }
 }
-Write-Host "Built $out/folderpad++.dll"
+Write-Host "Built folderpad++ $version : $out/folderpad++.dll"

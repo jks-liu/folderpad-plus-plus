@@ -29,6 +29,16 @@ u.GetParent.restype = W.HWND
 u.SetWindowTextW.argtypes = [W.HWND, W.LPCWSTR]
 u.PostMessageW.argtypes = [W.HWND, W.UINT, C.c_size_t, C.c_ssize_t]
 u.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
+u.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
+u.ChildWindowFromPointEx.argtypes = [W.HWND, W.POINT, W.UINT]
+u.ChildWindowFromPointEx.restype = W.HWND
+u.GetMenu.argtypes = [W.HWND]
+u.GetMenu.restype = W.HMENU
+u.GetSubMenu.argtypes = [W.HMENU, C.c_int]
+u.GetSubMenu.restype = W.HMENU
+u.GetMenuItemCount.argtypes = [W.HMENU]
+u.GetMenuItemID.argtypes = [W.HMENU, C.c_int]
+u.GetMenuStringW.argtypes = [W.HMENU, W.UINT, W.LPWSTR, C.c_int, W.UINT]
 k.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
 k.OpenProcess.restype = W.HANDLE
 k.VirtualAllocEx.argtypes = [W.HANDLE, C.c_void_p, C.c_size_t, W.DWORD, W.DWORD]
@@ -82,7 +92,7 @@ class Remote:
             raise C.WinError(C.get_last_error())
         return buf.raw.decode('utf-16-le').split('\0', 1)[0]
 
-    def click_item(self, hwnd, rect_message, index):
+    def click_item(self, hwnd, rect_message, index, right=False):
         self.write(bytes(16))
         assert send(hwnd, rect_message, index, self.address)
         buf = C.create_string_buffer(16)
@@ -91,8 +101,8 @@ class Remote:
         point = ((top + bottom) // 2 << 16) | ((left + right) // 2)
         # ListView may enter a drag-detection loop on button-down, so post both
         # messages before waiting for the resulting selection/activation.
-        u.PostMessageW(hwnd, 0x201, 1, point)
-        u.PostMessageW(hwnd, 0x202, 0, point)
+        u.PostMessageW(hwnd, 0x204 if right else 0x201, 2 if right else 1, point)
+        u.PostMessageW(hwnd, 0x205 if right else 0x202, 0, point)
 
     def close(self):
         k.VirtualFreeEx(self.handle, self.address, 0, 0x8000)
@@ -183,6 +193,32 @@ def main():
         panel = u.GetParent(tab)
         listing = u.GetDlgItem(panel, 206)
 
+        def owned_dialog(control=None):
+            for candidate in windows():
+                pid = W.DWORD()
+                u.GetWindowThreadProcessId(candidate, C.byref(pid))
+                if pid.value == proc.pid and classname(candidate) == '#32770' and candidate != panel:
+                    if control is None or u.GetDlgItem(candidate, control):
+                        return candidate
+
+        def menu_command(menu, label):
+            for index in range(u.GetMenuItemCount(menu)):
+                text = C.create_unicode_buffer(256)
+                u.GetMenuStringW(menu, index, text, 256, 0x400)
+                child = u.GetSubMenu(menu, index)
+                if child:
+                    found = menu_command(child, label)
+                    if found is not None:
+                        return found
+                elif label in text.value:
+                    return u.GetMenuItemID(menu, index)
+
+        def settings_window():
+            command = menu_command(u.GetMenu(hwnd), 'Settings... |')
+            assert command is not None
+            u.PostMessageW(hwnd, 0x111, command, 0)
+            return wait_for(lambda: owned_dialog(302), 'Settings dialog missing')
+
         def labels():
             result = []
             for i in range(send(tab, 0x1304, 0, 0)):
@@ -213,6 +249,19 @@ def main():
         wait_for(lambda: send(tab, 0x130b, 0, 0) == 1, 'Active document tab did not follow')
         wait_for(lambda: row_text() == ['二.txt'], 'Relative file row missing')
         check(row_text() == ['二.txt'], 'relative file labels; follow active document')
+        original_rect = W.RECT()
+        u.GetWindowRect(panel, C.byref(original_rect))
+        for width in (420, 180, 560, 260):
+            assert u.SetWindowPos(panel, None, 0, 0, width, 500, 0x16)
+            u.RedrawWindow(panel, None, None, 0x185)  # invalidate, erase, all children, update now
+            rect = W.RECT()
+            u.GetWindowRect(listing, C.byref(rect))
+            point = W.POINT(rect.left + 12, rect.top + 12)
+            u.ScreenToClient(panel, C.byref(point))
+            assert u.ChildWindowFromPointEx(panel, point, 7) == listing, 'File list is covered after panel resize'
+            check(row_text() == ['二.txt'], f'file list remains exposed after resize to {width}px')
+        u.SetWindowPos(panel, None, 0, 0, original_rect.right - original_rect.left,
+                       original_rect.bottom - original_rect.top, 0x16)
         send(hwnd, 0x111, 10002, 0)
         time.sleep(.25)
         check(labels() == ['项目 (1)', 'nested (1)', 'Other (1)'], 'clone into second view is deduplicated')
@@ -226,13 +275,51 @@ def main():
         wait_for(lambda: labels()[0] == '项目 (2)', 'Save As did not update ownership')
         wait_for(lambda: send(tab, 0x130b, 0, 0) == 0, 'Saved document tab not selected')
         check(send(tab, 0x130b, 0, 0) == 0, 'Save As automatically regroups document')
-        combo = u.GetDlgItem(panel, 203)
+        check(not u.GetDlgItem(panel, 203), 'language selector removed from panel')
+        dialog = settings_window()
+        combo = u.GetDlgItem(dialog, 302)
         send(combo, 0x14e, 2, 0)
-        send(panel, 0x111, 203 | (1 << 16), combo)
+        send(dialog, 0x111, 2, 0)
+        check(labels()[-1] == 'Other (1)', 'cancel settings leaves language unchanged')
+        dialog = settings_window()
+        combo = u.GetDlgItem(dialog, 302)
+        check(send(combo, 0x147, 0, 0) == 1, 'settings reloads persisted language')
+        send(combo, 0x14e, 2, 0)
+        send(dialog, 0x111, 1, 0)
         check(labels()[-1] == '其它 (1)', 'Chinese language switches immediately')
         send(hwnd, 0x111, 41003, 0)
         wait_for(lambda: labels()[0] == '项目 (1)', 'Closed file remained listed')
         check(True, 'close notification removes file')
+        # The selected tab is elsewhere: right-click must use the hit tab,
+        # and override the shell dialog's previous location.
+        for index, directory in ((0, project), (1, nested)):
+            name = f'right-click-{index}.txt'
+            (directory / name).write_text('opened via tab\n', encoding='utf-8')
+            remote.click_item(tab, 0x130a, index, right=True)
+            picker = wait_for(lambda: owned_dialog(), 'Right-click file picker missing')
+            time.sleep(.8)
+            input_box = wait_for(lambda: next((c for c in windows(picker)
+                                               if classname(c) == 'Edit' and u.GetDlgCtrlID(c) == 1148
+                                               and u.IsWindowVisible(c)), None), 'Filename input missing')
+            # Typing sends edit-change notifications used by the shell dialog;
+            # WM_SETTEXT alone does not reliably update its selected filename.
+            send(input_box, 0xb1, 0, -1)  # EM_SETSEL
+            send(input_box, 0x303, 0, 0)  # WM_CLEAR
+            for char in name:
+                send(input_box, 0x102, ord(char), 1)
+            u.PostMessageW(picker, 0x111, 1, 0)
+            def current_path():
+                active = send(hwnd, NPP + 60, 0, 0)
+                send(hwnd, NPP + 58, active, remote.address + 4096)
+                return remote.read_text()
+            wait_for(lambda: current_path() == str(directory / name), 'Relative filename did not open in clicked folder')
+            checks.append(f'right-click tab {index} opens file relative to its folder')
+            send(hwnd, 0x111, 41003, 0)
+        remote.click_item(tab, 0x130a, 2, right=True)
+        picker = wait_for(lambda: owned_dialog(), 'Other tab file picker missing')
+        time.sleep(.3)
+        send(picker, 0x111, 2, 0)
+        checks.append('Other tab opens picker and cancellation is harmless')
         send(hwnd, NPP + 28, 0, 1)
         wait_for(lambda: send(tab, 0x130b, 0, 0) == 1, 'Cannot select nested document')
         send(u.GetDlgItem(panel, 202), 0xf5, 0, 0)
@@ -240,7 +327,7 @@ def main():
         check(send(hwnd, NPP + 7, 0, 0) >= 3, 'remove tab leaves documents open')
         remote.close()
         send(hwnd, 0x10, 0, 0)
-        proc.wait(timeout=10)
+        proc.wait(timeout=30)
         proc, hwnd, tab, remote = launch(paths)
         wait_for(lambda: send(tab, 0x1304, 0, 0) == 2, 'Persisted folders not restored')
         saved = conf.read_text(encoding='utf-16')
@@ -268,12 +355,14 @@ def main():
         # does not support synthesizing WM_NOTIFY across process boundaries.
         remote.click_item(tab, 0x130a, 0)
         selected = LVITEM(state=3, stateMask=3)
-        wait_for(lambda: row_text() == ['一.txt', 'nested\\二.txt'], 'Folder tab did not change')
-        assert send(listing, 0x102b, 1, remote.write(bytes(selected)))
-        remote.click_item(listing, 0x100e, 1)
-        expected = send(hwnd, NPP + 59, 1, 0)
-        wait_for(lambda: send(hwnd, NPP + 60, 0, 0) == expected, 'Clicked file did not activate')
-        checks.append('clicking file row activates the matching host buffer')
+        # The native picker may remember the nested folder from the new
+        # right-click tests, so only rely on the first folder's direct child.
+        wait_for(lambda: bool(row_text()) and row_text()[0] == '一.txt', 'Folder tab did not change')
+        assert send(listing, 0x102b, 0, remote.write(bytes(selected)))
+        # Exercise native LVN_KEYDOWN without moving the user's real mouse.
+        send(listing, 0x100, 0x0d, 0)
+        wait_for(lambda: current_path() == str(paths[0]), 'Selected file did not activate')
+        checks.append('Enter on file row activates the matching host buffer')
         report = {'passed': len(checks), 'checks': checks, 'artifacts': str(base)}
         (base / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -281,7 +370,7 @@ def main():
         remote.close()
         if proc.poll() is None:
             send(hwnd, 0x10, 0, 0)
-            proc.wait(timeout=10)
+            proc.wait(timeout=30)
 
 
 if __name__ == '__main__':

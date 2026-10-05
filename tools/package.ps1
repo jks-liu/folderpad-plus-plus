@@ -1,8 +1,14 @@
-param([string]$Version = '1.0.0')
+param([string]$Version)
 # Package the tested x64 DLL and matching complete source. Does not rebuild.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$stage = "$root/build/package-$Version"
+. "$PSScriptRoot/version-lib.ps1"
+$current = Get-FolderpadVersion $root
+if ($Version -and $Version -ne $current) { throw "Package version must match src/version.h ($current)." }
+$Version = $current
+$dllVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo("$root/build/x86_64/folderpad++.dll").ProductVersion
+if ($dllVersion -ne $Version) { throw "DLL version ($dllVersion) differs from source ($Version); run tools/build.ps1 first." }
+$stage = "$root/build/package-$Version-$([guid]::NewGuid().ToString('N'))"
 $binary = "$stage/binary"
 $source = "$stage/source"
 New-Item -ItemType Directory -Force "$binary/plugins/folderpad++", $source, "$root/dist" | Out-Null
