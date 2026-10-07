@@ -97,8 +97,8 @@ class Remote:
         assert send(hwnd, rect_message, index, self.address)
         buf = C.create_string_buffer(16)
         assert k.ReadProcessMemory(self.handle, self.address, buf, 16, None)
-        left, top, right, bottom = struct.unpack('<4i', buf.raw)
-        point = ((top + bottom) // 2 << 16) | ((left + right) // 2)
+        left, top, rect_right, bottom = struct.unpack('<4i', buf.raw)
+        point = ((top + bottom) // 2 << 16) | ((left + rect_right) // 2)
         # ListView may enter a drag-detection loop on button-down, so post both
         # messages before waiting for the resulting selection/activation.
         u.PostMessageW(hwnd, 0x204 if right else 0x201, 2 if right else 1, point)
@@ -334,6 +334,18 @@ def main():
         assert 'Language=2' in saved and 'Count=1' in saved
         checks.append('restart restores folders and language')
         panel = u.GetParent(tab)
+        # Confirm the active file's parent directly, overriding shell history.
+        send(hwnd, NPP + 28, 0, 0)
+        assert current_path() == str(paths[0])
+        u.PostMessageW(u.GetDlgItem(panel, 201), 0xf5, 0, 0)
+        picker = wait_for(lambda: owned_dialog(), 'Folder picker did not appear')
+        time.sleep(.8)
+        u.PostMessageW(picker, 0x111, 1, 0)
+        wait_for(lambda: not owned_dialog(), 'Folder picker did not close')
+        assert 'Count=1' in conf.read_text(encoding='utf-16')
+        checks.append('add folder starts at active parent folder and deduplicates it')
+        send(hwnd, NPP + 28, 0, 1)
+        assert current_path() == str(paths[1])
         u.PostMessageW(u.GetDlgItem(panel, 201), 0xf5, 0, 0)
         def picker_window():
             for candidate in windows():
@@ -348,15 +360,14 @@ def main():
         wait_for(lambda: send(tab, 0x1304, 0, 0) == 3, 'Adding folder through picker failed')
         time.sleep(.2)
         saved = conf.read_text(encoding='utf-16')
-        assert 'Count=2' in saved
-        checks.append('native folder picker adds and persists the selected folder')
+        assert 'Count=2' in saved and f'1={nested}' in saved
+        checks.append('add folder follows changed active file directory and persists it')
         listing = u.GetDlgItem(panel, 206)
         # Native control input generates WM_NOTIFY inside the host. Windows
         # does not support synthesizing WM_NOTIFY across process boundaries.
         remote.click_item(tab, 0x130a, 0)
         selected = LVITEM(state=3, stateMask=3)
-        # The native picker may remember the nested folder from the new
-        # right-click tests, so only rely on the first folder's direct child.
+        # The nested folder now owns its documents; select the parent's child.
         wait_for(lambda: bool(row_text()) and row_text()[0] == '一.txt', 'Folder tab did not change')
         assert send(listing, 0x102b, 0, remote.write(bytes(selected)))
         # Exercise native LVN_KEYDOWN without moving the user's real mouse.

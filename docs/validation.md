@@ -1,5 +1,20 @@
 # 验证结果
 
+## 2026-10-07 / 1.1.1 发布准备
+- 编译及 16 项路径检查通过；17 项版本 CLI 检查通过。
+- 修正鼠标辅助函数后，23 项真实宿主功能检查通过并正常退出：`build/smoke-20261007-135631/result.json`。
+- 真实 Debug Notepad++ / Debug GUP 完成三项插件管理器检查：安装精确发布 ZIP 并加载 DLL、卸载、从旧版 1.1.0 升级且清理过时文件并保留配置；测试进程已退出：`build/plugin-admin-20261007-135619/result.json`。
+- Debug 宿主来自官方 artifact 11440908157（FileVersion 8.9.8.1），GUP 来自官方 artifact 9973118144；下载经 nightly.link 转发，保存于 `.cache/release-tools`。功能检查另使用已安装的稳定版隔离副本。
+- 官方 validator/schema 验证 ZIP 下载、SHA-256、根目录 DLL 和 FileVersion，且与当前 x64 列表核对名称及下载地址唯一性：`build/plugin-list-validation-20261007-135512/result.json`。
+- 本地安装及官方 validator 均通过 loopback 下载实际发布包，二进制 SHA-256：`18630bf6de8d2b51917c75a3d6822ec43d7f9adddccb81542140a3d345b3841a`。公开 Release URL 尚未上传验证。
+- 发布版本 1.1.1；只交付 x64，最低支持基线为 8.9.8.1。更早宿主、x86、ARM64 未验证。
+
+## 2026-10-07 / 1.1.0 工作区修改
+- 编译及 16 项路径检查通过。
+- 23 项真实 Notepad++ 集成检查通过，测试进程正常退出；报告：`build/smoke-20261007-091709/result.json`。
+- 添加文件夹时依次激活父目录文件、嵌套目录文件，不输入路径直接确认选择窗口；父目录正确去重，嵌套目录正确添加并持久化，确认活动文件优先于 Shell 历史目录。
+- 未安装到用户宿主，未重新打包；本次 DLL：`build/x86_64/folderpad++.dll`。
+
 ## 2026-10-05 / 1.1.0
 - 编译及 16 项路径测试通过。
 - 22 项真实 Notepad++ 集成检查通过，最终进程正常退出：`build/smoke-20261005-065254/result.json`。

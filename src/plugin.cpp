@@ -289,12 +289,31 @@ void activateRow() {
 void showPanel();
 void addFolder() {
     showPanel();
+    // Read the active buffer directly; the panel's selected tab may differ.
+    std::wstring directory;
+    auto active = static_cast<UINT_PTR>(npp(NPPM_GETCURRENTBUFFERID));
+    auto length = npp(NPPM_GETFULLPATHFROMBUFFERID, active, 0);
+    if (length > 0) {
+        std::wstring path(static_cast<size_t>(length) + 1, L'\0');
+        npp(NPPM_GETFULLPATHFROMBUFFERID, active, reinterpret_cast<LPARAM>(path.data()));
+        const std::filesystem::path file(path.c_str());
+        // Unsaved buffers have names such as "new 1", without a directory.
+        if (file.is_absolute()) directory = file.parent_path().wstring();
+    }
     HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     IFileOpenDialog* dialog = nullptr;
     if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
         DWORD flags = 0; dialog->GetOptions(&flags);
         dialog->SetOptions(flags | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
         dialog->SetTitle(tr(L"Add folder (open documents only)", L"添加文件夹（仅显示已打开文档）"));
+        if (!directory.empty()) {
+            IShellItem* initialFolder = nullptr;
+            if (SUCCEEDED(SHCreateItemFromParsingName(directory.c_str(), nullptr, IID_PPV_ARGS(&initialFolder)))) {
+                // SetFolder overrides the shell's remembered location each time.
+                dialog->SetFolder(initialFolder);
+                initialFolder->Release();
+            }
+        }
         if (SUCCEEDED(dialog->Show(host._nppHandle))) {
             IShellItem* item = nullptr;
             if (SUCCEEDED(dialog->GetResult(&item))) {

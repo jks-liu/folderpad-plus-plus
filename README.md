@@ -6,7 +6,7 @@ Notepad++ 原生插件：在左侧停靠面板中，用文件夹标签组织**�
 
 1. 将 `folderpad++.dll` 放到 Notepad++ 安装目录下的 `plugins/folderpad++/`，重新启动 Notepad++。
 2. 打开 **插件 → folderpad++ → Show / Hide panel | 显示 / 隐藏面板**。
-3. 点击“添加文件夹…”，选择要组织的目录。目录中的已打开文件会自动出现在对应标签。
+3. 点击“添加文件夹…”，默认定位到当前活动文件所在目录；未保存文档使用系统默认位置。选择目录后，其中已打开的文件会自动出现在对应标签。
 4. 点击列表中的文件激活文档；键盘选择后按 Enter 或空格也可以激活。
 5. 在 **插件 → folderpad++ → Settings... | 设置…** 中选择跟随 Notepad++、English 或简体中文，点击“确定”保存；“取消”不改变设置。
 6. **右键文件夹标签**直接打开文件选择窗口，起始目录为该标签对应文件夹，可选择一个或多个文件交给 Notepad++ 打开。右键未选中的标签也以鼠标所在标签为准；右键空白区域无操作。“其它”没有绑定目录，使用系统文件选择窗口的默认位置。标签获得焦点后，也可按 Shift+F10 打开文件。
@@ -39,7 +39,9 @@ python tools/smoke-test.py
 
 输出：`build/x86_64/folderpad++.dll`。路径核心测试随构建运行；宿主测试的配置与 JSON 报告保留在 `build/smoke-时间/`。
 
-可用 `-Arch i686` 或 `-Arch aarch64` 交叉编译其它位数；这些产物需要在对应宿主上自行验证。当前发布验证针对 Windows x64 / Notepad++ 8.9.8.1。
+可用 `-Arch i686` 或 `-Arch aarch64` 交叉编译其它位数；这些产物需要在对应宿主上自行验证。正式发布仅提供 Windows x64；最低支持基线为已验证的 Notepad++ 8.9.8.1，更早版本暂不声明支持。
+
+二进制 ZIP 根目录直接包含 `folderpad++.dll`，适配 Plugins Admin；手动安装时应将 DLL 放入 `plugins/folderpad++/`。发布准备运行 `./tools/prepare-release.ps1`，生成 SHA-256、官方列表条目、发布说明及 PR 草稿；公开上传后运行 `./tools/prepare-release.ps1 -VerifyPublished` 验证下载字节。脚本不上传或提交。
 
 ## 版本升级
 
@@ -76,5 +78,7 @@ python tools/smoke-test.py
 - [问题记录](docs/issues/)
 - [经验总结](docs/lessons/)
 - [脚本说明](tools/README.md)
+- [官方插件列表提交指南](docs/official-plugin-list.md)
+- [1.1.1 发布说明](docs/releases/1.1.1.md)
 
 原生 API 依据 [Notepad++ 插件通信文档](https://npp-user-manual.org/docs/plugin-communication/) 和官方 [插件模板](https://github.com/npp-plugins/plugintemplate)。接口头文件的来源、版本及许可见 [vendor/README.md](vendor/README.md)。项目许可：GPL-3.0-or-later。
