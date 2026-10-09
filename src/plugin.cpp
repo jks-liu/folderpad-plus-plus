@@ -4,6 +4,7 @@
 #include <windowsx.h>
 #include <commctrl.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -253,6 +254,21 @@ void openFiles(const std::wstring& folder) {
     if (failed) error(L"Some selected files could not be opened.", L"部分所选文件无法打开。");
 }
 LRESULT CALLBACK tabProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
+    if (msg == WM_LBUTTONDBLCLK) {
+        TCHITTESTINFO hit{}; hit.pt = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+        int index = TabCtrl_HitTest(hwnd, &hit);
+        if (index >= 0 && index < static_cast<int>(folders.size())) {
+            // Copy the hit folder: the selected tab may differ and Shell can dispatch messages.
+            const auto folder = folders[index];
+            SHELLEXECUTEINFOW open{}; open.cbSize = sizeof(open);
+            open.fMask = SEE_MASK_FLAG_NO_UI;
+            open.hwnd = host._nppHandle; open.lpVerb = L"explore";
+            open.lpFile = folder.c_str(); open.nShow = SW_SHOWNORMAL;
+            if (!ShellExecuteExW(&open))
+                error(L"Cannot open this folder in File Explorer. Check that the folder is accessible.", L"无法在资源管理器中打开此文件夹，请检查目录是否可访问。");
+        }
+        return 0;
+    }
     if (msg == WM_RBUTTONUP || msg == WM_CONTEXTMENU) {
         int index;
         if (msg == WM_CONTEXTMENU && l == -1) index = TabCtrl_GetCurSel(hwnd);

@@ -2,6 +2,7 @@ param(
     [string]$Repository = 'https://github.com/jks-liu/folderpad-plus-plus',
     [string]$Author = 'Jks Liu',
     [string]$CompatibleVersions = '[8.9.8.1,]',
+    [string]$Tag,
     [switch]$VerifyPublished
 )
 # Generate local release materials from an existing package; never uploads or commits.
@@ -10,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . "$PSScriptRoot/version-lib.ps1"
 $version = Get-FolderpadVersion $root
+if (-not $Tag) { $Tag = "releases/v$version" }
 $Repository = $Repository.TrimEnd('/')
 if ($Repository -notmatch '^https://github\.com/[^/]+/[^/]+$') { throw 'Repository must be a GitHub repository URL.' }
 if ($CompatibleVersions -notmatch '^\[(\d+(\.\d+){0,3})?,(\d+(\.\d+){0,3})?\]$' -or $CompatibleVersions -eq '[,]') {
@@ -39,7 +41,9 @@ try {
     $entries = @($zip.Entries | ForEach-Object { $_.FullName })
 } finally { $zip.Dispose() }
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-$download = "$Repository/releases/download/v$version/$name"
+$tagPath = (($Tag -split '/' | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/')
+$assetName = [Uri]::EscapeDataString($name)
+$download = "$Repository/releases/download/$tagPath/$assetName"
 $entry = [ordered]@{
     'folder-name' = 'folderpad++'
     'display-name' = 'folderpad++'
@@ -68,7 +72,7 @@ if ($VerifyPublished) {
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp } }
 }
 [ordered]@{
-    version = $version; architecture = 'x64'; fileVersion = $dllInfo.FileVersion
+    version = $version; gitTag = $Tag; architecture = 'x64'; fileVersion = $dllInfo.FileVersion
     productVersion = $dllInfo.ProductVersion; dllSHA256 = $zipDllHash.ToLowerInvariant()
     zipSHA256 = $hash; zipEntries = $entries; downloadURL = $download
     publicDownloadVerified = $publishedVerified
@@ -83,6 +87,7 @@ folderpad++ organizes already-open documents into folder tabs in a dockable pane
 
 - Architecture: x64 only
 - Version: $version
+- Git tag: $Tag
 - Compatibility: $CompatibleVersions (conservative minimum based on the tested stable host)
 - Download: $download
 - ZIP SHA-256: $hash

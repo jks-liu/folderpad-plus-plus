@@ -27,6 +27,8 @@ u.GetDlgItem.restype = W.HWND
 u.GetParent.argtypes = [W.HWND]
 u.GetParent.restype = W.HWND
 u.SetWindowTextW.argtypes = [W.HWND, W.LPCWSTR]
+u.GetClassLongW.argtypes = [W.HWND, C.c_int]
+u.GetClassLongW.restype = W.DWORD
 u.PostMessageW.argtypes = [W.HWND, W.UINT, C.c_size_t, C.c_ssize_t]
 u.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
 u.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
@@ -92,7 +94,7 @@ class Remote:
             raise C.WinError(C.get_last_error())
         return buf.raw.decode('utf-16-le').split('\0', 1)[0]
 
-    def click_item(self, hwnd, rect_message, index, right=False):
+    def click_item(self, hwnd, rect_message, index, right=False, double=False):
         self.write(bytes(16))
         assert send(hwnd, rect_message, index, self.address)
         buf = C.create_string_buffer(16)
@@ -103,11 +105,38 @@ class Remote:
         # messages before waiting for the resulting selection/activation.
         u.PostMessageW(hwnd, 0x204 if right else 0x201, 2 if right else 1, point)
         u.PostMessageW(hwnd, 0x205 if right else 0x202, 0, point)
+        if double:
+            assert not right, 'Double-click helper supports the left button only'
+            u.PostMessageW(hwnd, 0x203, 1, point)  # WM_LBUTTONDBLCLK
+            u.PostMessageW(hwnd, 0x202, 0, point)
 
     def close(self):
         k.VirtualFreeEx(self.handle, self.address, 0, 0x8000)
         k.CloseHandle(self.handle)
 
+
+def explorer_windows(directory, close=False):
+    """Count/close only Explorer windows at a unique directory created by this test."""
+    env = dict(os.environ, FOLDERPAD_TEST_EXPLORER_DIRECTORY=str(directory.resolve()),
+               FOLDERPAD_TEST_EXPLORER_CLOSE='1' if close else '0')
+    script = '''$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject Shell.Application
+$matches = 0
+foreach ($window in @($shell.Windows())) {
+    try {
+        $url = [Uri]$window.LocationURL
+        if ($url.IsFile -and $url.LocalPath.TrimEnd('\\') -ieq $env:FOLDERPAD_TEST_EXPLORER_DIRECTORY.TrimEnd('\\')) {
+            $matches++
+            if ($env:FOLDERPAD_TEST_EXPLORER_CLOSE -eq '1') { $window.Quit() }
+        }
+    } catch { }
+}
+Write-Output $matches'''
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                            env=env, capture_output=True, text=True, timeout=20,
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+    assert result.returncode == 0, result.stderr
+    return int(result.stdout.strip())
 
 class TCITEM(C.Structure):
     _fields_ = [('mask', W.UINT), ('state', W.DWORD), ('stateMask', W.DWORD),
@@ -155,7 +184,7 @@ def main():
     plugin_list = original / 'plugins/Config/nppPluginList.dll'
     if plugin_list.exists():
         shutil.copy2(plugin_list, conf.parent)
-    project = base / '项目'
+    project = base / '双击 test' / '项目'
     nested = project / 'nested'
     nested.mkdir(parents=True)
     outside = base / '项目-other'
@@ -245,6 +274,29 @@ def main():
         print('Initial tabs:', labels(), 'rows:', row_text(), flush=True)
         wait_for(lambda: labels() == ['项目 (1)', 'nested (1)', 'Other (1)'], 'Initial ownership incorrect')
         check(True, 'load DLL; Unicode folders; nested ownership; prefix boundary')
+        # Send DBLCLK directly while another tab remains selected: hit-testing
+        # must use the clicked folder, including Unicode and spaces in its path.
+        assert u.GetClassLongW(tab, -26) & 8, 'Tab class must generate double-click messages'
+        for index, directory in ((0, project), (1, nested)):
+            assert explorer_windows(directory) == 0
+            remote.write(bytes(16))
+            assert send(tab, 0x130a, index, remote.address)
+            rect_buffer = C.create_string_buffer(16)
+            assert k.ReadProcessMemory(remote.handle, remote.address, rect_buffer, 16, None)
+            left, top, right, bottom = struct.unpack('<4i', rect_buffer.raw)
+            point = ((top + bottom) // 2 << 16) | ((left + right) // 2)
+            send(tab, 0x203, 1, point)
+            wait_for(lambda: explorer_windows(directory) > 0, 'Double-click did not open the hit folder in Explorer')
+            explorer_windows(directory, close=True)
+            wait_for(lambda: explorer_windows(directory) == 0, 'Test Explorer window did not close')
+            checks.append(f'double-click tab {index} opens its exact folder in Explorer')
+        selected_before = send(tab, 0x130b, 0, 0)
+        send(tab, 0x203, 1, (300 << 16) | 10)  # Blank tab-page background.
+        assert send(tab, 0x130b, 0, 0) == selected_before
+        remote.click_item(tab, 0x130a, 2, double=True)
+        wait_for(lambda: send(tab, 0x130b, 0, 0) == 2, 'Other tab left click did not select it')
+        assert not owned_dialog() and explorer_windows(project) == 0 and explorer_windows(nested) == 0
+        checks.append('Other and blank-area double-clicks are harmless; left click still switches tabs')
         send(hwnd, NPP + 28, 0, 1)
         wait_for(lambda: send(tab, 0x130b, 0, 0) == 1, 'Active document tab did not follow')
         wait_for(lambda: row_text() == ['二.txt'], 'Relative file row missing')
@@ -378,10 +430,14 @@ def main():
         (base / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
     finally:
-        remote.close()
-        if proc.poll() is None:
-            send(hwnd, 0x10, 0, 0)
-            proc.wait(timeout=30)
+        try:
+            for directory in (project, nested):
+                explorer_windows(directory, close=True)
+        finally:
+            remote.close()
+            if proc.poll() is None:
+                send(hwnd, 0x10, 0, 0)
+                proc.wait(timeout=30)
 
 
 if __name__ == '__main__':

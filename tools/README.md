@@ -19,13 +19,15 @@
 
 宿主测试需要 64 位 Python（仅使用标准库），通过 PID 限定窗口并读取测试进程内控件；不扫描或操作用户已有 Notepad++ 实例。测试样例、配置和报告保留在 `build/smoke-*`，可检查后手动清理。
 
+双击目录测试调用系统 Windows PowerShell 的 Shell.Application COM 接口，核对 Explorer 的完整目录位置；仅匹配本次新建的测试路径，完成后关闭测试窗口，不输出其它目录信息。
+
 安装到 Program Files 需要管理员权限。首次安装允许宿主继续运行，下次启动加载；更新已有 DLL 时须先保存文档并关闭对应宿主。
 
 版本命令见 README。`python tests/version_tests.py` 在临时目录验证 CLI，不改工作区版本。打包会比对 DLL ProductVersion 和 `src/version.h`，并创建独立打包目录，防止混入旧文件。
 
 ## 发布准备与安装验证
 
-`package.ps1` 核对 DLL FileVersion/ProductVersion，二进制 ZIP 根目录直接放 DLL；源码包排除 Python 缓存。`prepare-release.ps1` 不重新打包，默认生成本仓库作者和下载地址的元数据；支持 `-Repository`、`-Author`、`-CompatibleVersions`。上传后使用 `-VerifyPublished` 校验公开下载内容。所有脚本均不上传、提交、创建 Git 标签。
+`package.ps1` 核对 DLL FileVersion/ProductVersion，二进制 ZIP 根目录直接放 DLL；源码包排除 Python 缓存。`prepare-release.ps1` 不重新打包，默认生成本仓库作者和下载地址的元数据，标签默认为 `releases/v<版本>`；支持 `-Repository`、`-Author`、`-CompatibleVersions`、`-Tag`。下载地址保留标签中的 `/`，并编码附件名中的特殊字符。上传后使用 `-VerifyPublished` 校验公开下载内容。所有脚本均不上传、提交、创建 Git 标签。
 
 从[官方手册](https://github.com/notepad-plus-plus/npp-usermanual/blob/master/content/docs/plugins.md#test-your-plugins-locally)获取 x64 Debug Notepad++ 和 Debug GUP，解压后运行：
 

@@ -32,7 +32,7 @@
 - 已修正为根目录 DLL，并生成包含最新修改的 1.1.1 二进制和对应源码包。
 - 作者 Jks Liu，主页 `https://github.com/jks-liu/folderpad-plus-plus`；x64 兼容范围保守设为 `[8.9.8.1,]`。
 - 23 项功能检查、插件管理器安装/移除/升级、官方 validator 校验通过；详见 [验证记录](validation.md)。
-- 待公开上传 Release 并校验下载，然后提交官方 JSON PR；交付文件和具体操作见 [发布交接](release-preparation.md)。
+- 用户已公开发布 `releases/v1.1.1`，公网二进制 ZIP 哈希校验通过；官方 JSON 条目已修正下载地址，可用于后续 PR。交付文件和具体操作见 [发布交接](release-preparation.md)。
 
 ## 官方依据
 

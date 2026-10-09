@@ -1,8 +1,8 @@
 #pragma once
 // Canonical version. Update via tools/version-bump.ps1.
 #define FOLDERPAD_VERSION_MAJOR 1
-#define FOLDERPAD_VERSION_MINOR 1
-#define FOLDERPAD_VERSION_PATCH 1
+#define FOLDERPAD_VERSION_MINOR 2
+#define FOLDERPAD_VERSION_PATCH 0
 #define FP_STRINGIFY_INNER(x) #x
 #define FP_STRINGIFY(x) FP_STRINGIFY_INNER(x)
 #define FP_WIDEN_INNER(x) L##x

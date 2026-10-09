@@ -1,23 +1,18 @@
 # 任务与进度
 
-## 当前任务（2026-10-07 / 1.1.1 发布准备）
-完成本地发布准备，公开上传与官方 PR 为后续发布操作。
+## 当前任务（2026-10-08 / 双击标签打开目录）
+添加左键双击文件夹标签在资源管理器中打开对应目录。
 
-## 已完成
-- 版本升级到 1.1.1；添加文件夹默认使用当前活动文件目录。
-- ZIP 根目录直接包含 DLL；打包核对 FileVersion/ProductVersion，源码排除 Python 缓存。
-- 发布说明、SHA-256、官方列表 JSON、发布清单及 PR 草稿由 tools/prepare-release.ps1 生成。
-- 16 项路径检查、17 项版本 CLI 检查、23 项真实宿主功能检查通过。
-- 插件管理器安装、移除、从 1.1.0 升级及配置保留通过；官方 validator/schema 通过，名称及下载地址未与当前 x64 列表冲突。
-- 测试报告见 docs/validation.md；用户已有 folderpad++prompts.md 修改未改动。
+## 进度
+- 已实现 WM_LBUTTONDBLCLK 命中检测，通过 Shell explore 动作打开命中的文件夹。
+- 其它标签和空白区域无操作；无法打开时提供中英错误提示。
+- 编译、16 项路径检查及 26 项真实宿主检查通过，包含中文、空格路径和未选中标签的命中行为；报告：build/smoke-20261008-230029/result.json。
+- 新 DLL：build/x86_64/folderpad++.dll；README、修改记录、问题与经验记录已更新。
+- 版本暂保持 1.1.1；已公开发布的 ZIP 不重打或替换。本次仅生成工作区 DLL。
 
-## 交付状态
-- 发布源码包、二进制包和提交元数据位于 dist；最终二进制哈希与安装测试及官方校验所用包一致。
-- 交付入口：docs/release-preparation.md，提交要求：docs/official-plugin-list.md。
-
-## 后续发布操作
-尚未提交、打标签、推送、公开上传或提交官方 PR。发布仓库 https://github.com/jks-liu/folderpad-plus-plus，作者 Jks Liu；预定标签 v1.1.1。
-上传冻结包后运行 tools/prepare-release.ps1 -VerifyPublished，确认公网下载字节；再提交 src/pl.x64.json 条目。
+## 既有发布状态
+1.1.1 已使用 releases/v1.1.1 标签公开发布。标签修正相关文档和 tools/prepare-release.ps1 的已有工作区修改保留；本次不提交或发布。
+发布说明见 docs/release-preparation.md；既有公网包哈希与测试证据见 docs/validation.md。
 
 ## 约束
-只交付已验证 x64，最低支持基线 Notepad++ 8.9.8.1；不宣称更早宿主、x86、ARM64 可用。插件不扫描目录，以已打开 buffer 为数据源；嵌套目录最长匹配，双视图去重，移除标签不关闭文件。不操作用户已有宿主。
+插件不扫描目录，以已打开 buffer 为数据源；嵌套目录最长匹配，双视图去重，移除标签不关闭文件。只验证 x64 / Notepad++ 8.9.8.1。测试只操作隔离宿主和本次新开的测试目录窗口，不操作用户已有资源管理器窗口。
