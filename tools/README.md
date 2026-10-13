@@ -10,6 +10,7 @@
 | smoke-test.py | 复制宿主到独立测试目录，执行跨进程真实 GUI/API 测试 | `python tools/smoke-test.py --notepad-dir "C:/Program Files/Notepad++"` |
 | package.ps1 | 将当前 x64 DLL 及对应完整源码分别打包 | `./tools/package.ps1` |
 | prepare-release.ps1 | 校验现有 ZIP、生成哈希、官方列表条目、发布说明与 PR 草稿 | `./tools/prepare-release.ps1` |
+| validate-release-tag.ps1 | 只读校验 annotated tag、源码版本、检出提交及发布说明 | `./tools/validate-release-tag.ps1 -Tag releases/v1.2.0` |
 | plugin-admin-test.py | 隔离 Debug 宿主中测试真实插件管理器安装、移除和升级 | 见下方 |
 | validate-plugin-list.py | 用官方 schema 与 validator 校验本地发布包及名称唯一性 | 见下方 |
 | version-bump.ps1 | 默认升级 patch，可选构建打包；current 只读 | `./tools/version-bump.ps1 minor -Build` |
@@ -28,6 +29,8 @@
 ## 发布准备与安装验证
 
 `package.ps1` 核对 DLL FileVersion/ProductVersion，二进制 ZIP 根目录直接放 DLL；源码包排除 Python 缓存。`prepare-release.ps1` 不重新打包，默认生成本仓库作者和下载地址的元数据，标签默认为 `releases/v<版本>`；支持 `-Repository`、`-Author`、`-CompatibleVersions`、`-Tag`。下载地址保留标签中的 `/`，并编码附件名中的特殊字符。上传后使用 `-VerifyPublished` 校验公开下载内容。所有脚本均不上传、提交、创建 Git 标签。
+
+GitHub 自动发布通过工作流调用现有脚本并上传附件；完整流程与故障恢复见 [自动发布说明](../docs/automatic-release.md)。`python tests/release_tag_tests.py` 在临时 Git 仓库验证 tag 约束，不操作真实仓库标签。
 
 从[官方手册](https://github.com/notepad-plus-plus/npp-usermanual/blob/master/content/docs/plugins.md#test-your-plugins-locally)获取 x64 Debug Notepad++ 和 Debug GUP，解压后运行：
 

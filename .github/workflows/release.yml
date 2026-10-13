@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'releases/v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_COMMIT: ${{ github.sha }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate annotated tag, version and release notes
+        run: ./tools/validate-release-tag.ps1 -Tag $env:RELEASE_TAG -ExpectedCommit $env:RELEASE_COMMIT
+
+      - name: Set up pinned compiler
+        run: ./tools/setup-toolchain.ps1
+
+      - name: Build x64 plugin and run model tests
+        run: ./tools/build.ps1 -Arch x86_64
+
+      - name: Test version and release guards
+        run: |
+          python tests/version_tests.py
+          if ($LASTEXITCODE) { throw 'Version CLI tests failed.' }
+          python tests/release_tag_tests.py
+          if ($LASTEXITCODE) { throw 'Release tag tests failed.' }
+
+      - name: Package and prepare release materials
+        run: |
+          ./tools/package.ps1
+          ./tools/prepare-release.ps1 -Repository "https://github.com/$env:GH_REPO" -Tag $env:RELEASE_TAG
+
+      # gh refuses to overwrite an existing release. Upload failure leaves a draft.
+      - name: Create draft release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . ./tools/version-lib.ps1
+          $version = Get-FolderpadVersion $PWD.Path
+          $assets = @(
+            "dist/folderpad++-$version-x64.zip",
+            "dist/folderpad++-$version-source.zip",
+            'dist/SHA256SUMS.txt',
+            'dist/nppPluginList-entry-x64.json',
+            'dist/release-manifest.json'
+          )
+          gh release create $env:RELEASE_TAG @assets --verify-tag --draft --title "folderpad++ $version" --notes-file dist/RELEASE-NOTES.md
+          if ($LASTEXITCODE) { throw 'Release creation/upload failed; inspect any existing draft before retrying.' }
+
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit $env:RELEASE_TAG --draft=false
+          if ($LASTEXITCODE) { throw 'Publishing failed; inspect the release state on GitHub before retrying.' }

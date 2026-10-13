@@ -44,6 +44,10 @@ python tools/smoke-test.py
 
 二进制 ZIP 根目录直接包含 `folderpad++.dll`，适配 Plugins Admin；手动安装时应将 DLL 放入 `plugins/folderpad++/`。发布准备运行 `./tools/prepare-release.ps1`，生成 SHA-256、官方列表条目、发布说明及 PR 草稿；公开上传后运行 `./tools/prepare-release.ps1 -VerifyPublished` 验证下载字节。脚本不上传或提交。
 
+## 自动发布
+
+推送 `releases/vX.Y.Z` annotated tag 后，GitHub Actions 自动校验版本、编译 x64、运行测试、打包并发布 Release。发布说明放在 `docs/releases/X.Y.Z.md`；首次启用、操作步骤及失败恢复见 [自动发布说明](docs/automatic-release.md)。
+
 ## 版本升级
 
 使用 PowerShell 7，无需 npm，在项目目录运行：

@@ -17,7 +17,7 @@ $source = "$stage/source"
 New-Item -ItemType Directory -Force $binary, $source, "$root/dist" | Out-Null
 Copy-Item -LiteralPath "$root/build/x86_64/folderpad++.dll" -Destination "$binary/folderpad++.dll" -Force
 Copy-Item "$root/README.md", "$root/LICENSE" $binary -Force
-foreach ($name in @('src','vendor','tests','tools','docs','README.md','LICENSE','.gitignore','.gitattributes')) {
+foreach ($name in @('src','vendor','tests','tools','docs','.github','README.md','LICENSE','.gitignore','.gitattributes')) {
     if (Test-Path -LiteralPath "$root/$name" -PathType Container) {
         # Copy source files explicitly: recursive Copy-Item exclusions leave empty cache folders.
         foreach ($file in Get-ChildItem -LiteralPath "$root/$name" -File -Recurse -Force) {

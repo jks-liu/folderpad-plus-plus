@@ -1,18 +1,21 @@
 # 任务与进度
 
-## 当前任务（2026-10-08 / 双击标签打开目录）
-添加左键双击文件夹标签在资源管理器中打开对应目录。
+## 当前任务（2026-10-12 / GitHub 自动发布）
 
-## 进度
-- 已实现 WM_LBUTTONDBLCLK 命中检测，通过 Shell explore 动作打开命中的文件夹。
-- 其它标签和空白区域无操作；无法打开时提供中英错误提示。
-- 编译、16 项路径检查及 26 项真实宿主检查通过，包含中文、空格路径和未选中标签的命中行为；报告：build/smoke-20261008-230029/result.json。
-- 新 DLL：build/x86_64/folderpad++.dll；README、修改记录、问题与经验记录已更新。
-- 版本暂保持 1.1.1；已公开发布的 ZIP 不重打或替换。本次仅生成工作区 DLL。
+用户要求推送 releases/vX.Y.Z annotated tag 后自动编译、发布，并提供详细简练的中文 Markdown 文档。
 
-## 既有发布状态
-1.1.1 已使用 releases/v1.1.1 标签公开发布。标签修正相关文档和 tools/prepare-release.ps1 的已有工作区修改保留；本次不提交或发布。
-发布说明见 docs/release-preparation.md；既有公网包哈希与测试证据见 docs/validation.md。
+## 当前进度
 
-## 约束
-插件不扫描目录，以已打开 buffer 为数据源；嵌套目录最长匹配，双视图去重，移除标签不关闭文件。只验证 x64 / Notepad++ 8.9.8.1。测试只操作隔离宿主和本次新开的测试目录窗口，不操作用户已有资源管理器窗口。
+- 已新增 .github/workflows/release.yml，使用 Windows runner 复用工具链、x64 编译与打包脚本；附件上传到草稿成功后再公开。
+- 已新增 tools/validate-release-tag.ps1 和隔离测试，检查 tag 类型、严格格式、版本、提交与非空发布说明。
+- 源码包纳入 .github；新增 docs/automatic-release.md，README 与脚本说明已链接。
+- 已完成：actionlint/PowerShell 语法检查、15 项 tag 校验、17 项版本 CLI 测试、16 项模型测试，以及隔离 x64 构建、打包、哈希和源码文件检查。证据见 docs/validation.md。
+- 已更新修改记录、问题记录和经验记录；中文操作文档包含首次启用、日常发布、附件和失败恢复。
+- 本地实现与验证已完成。下一步是提交并推送这些修改；首次实际 GitHub 发布需要新版本号、新发布说明和新 annotated tag，不应重发既有 1.2.0。
+
+## 交接约束
+
+- 当前源码版本为 1.2.0；已有 releases/v1.1.1 和 releases/v1.2.0。本次不修改版本、不移动 tag、不替换既有发布附件。
+- 打包验证必须在临时副本执行，避免覆盖工作区 dist 中既有冻结包。
+- 本次不新建正式发布、不推送远端；GitHub 实际运行待提交工作流后由下一个新版本 tag 触发。
+- 正式发布仅 x64；真实 Notepad++ GUI、Plugins Admin 测试仍在打 tag 前完成。

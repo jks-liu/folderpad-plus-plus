@@ -1,5 +1,13 @@
 # 验证结果
 
+## 2026-10-12 / GitHub 自动发布
+- actionlint 1.7.7 验证 `.github/workflows/release.yml` 通过；PowerShell parser 检查校验脚本通过。
+- 15 项发布 tag 测试通过，覆盖缺失/轻量 tag、严格格式、版本不一致、空/缺失说明、检出/触发提交不一致及正确 annotated tag。
+- 17 项版本 CLI 检查通过；真实 `releases/v1.2.0` tag 的只读校验通过。
+- 在 `.cache/release-ci-validation-de10527a4e7748a7ad3e7eb91a69f775` 临时副本中使用固定 llvm-mingw 构建 1.2.0，16 项路径模型检查通过；两个 ZIP、版本、PE 架构、包内 DLL 与哈希校验通过。
+- 源码 ZIP 确认包含 `.github/workflows/release.yml`、`tools/validate-release-tag.ps1`、`tests/release_tag_tests.py` 和 `docs/automatic-release.md`。临时副本保留用于检查，不覆盖工作区 `dist`。
+- 未执行 GitHub 上传/公开、未触发真实 CI；托管 runner、仓库权限和远程发布需要工作流提交后首次新版本 tag 验证。未改插件逻辑，本次未重复真实宿主 GUI 测试。
+
 ## 2026-10-08 / 双击标签打开目录（工作区修改）
 - 编译及 16 项路径检查通过。
 - 26 项真实宿主检查通过，隔离宿主正常退出，测试目录的 Explorer 窗口已关闭：`build/smoke-20261008-230029/result.json`。
