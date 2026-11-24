@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate annotated tag, version and release notes
+      - name: Validate tag, version and release notes
         run: ./tools/validate-release-tag.ps1 -Tag $env:RELEASE_TAG -ExpectedCommit $env:RELEASE_COMMIT
 
       - name: Set up pinned compiler

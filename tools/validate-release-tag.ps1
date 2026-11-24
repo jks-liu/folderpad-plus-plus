@@ -13,10 +13,8 @@ if ($Tag -cnotmatch '^releases/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*
 $version = Get-FolderpadVersion $root
 if ($Tag -cne "releases/v$version") { throw "Tag version differs from src/version.h ($version)." }
 $ref = "refs/tags/$Tag"
-$kind = & git -C $root cat-file -t $ref
-if ($LASTEXITCODE -or $kind -ne 'tag') { throw 'Release requires an existing annotated tag (git tag -a).' }
 $commit = & git -C $root rev-parse --verify "$ref^{commit}"
-if ($LASTEXITCODE) { throw 'Release tag must point to a commit.' }
+if ($LASTEXITCODE) { throw 'Release requires an existing tag pointing to a commit.' }
 $headCommit = & git -C $root rev-parse --verify HEAD
 if ($LASTEXITCODE -or $commit -ne $headCommit) { throw 'Checked-out source does not match the release tag.' }
 if ($ExpectedCommit) {
@@ -28,4 +26,4 @@ if (-not (Test-Path -LiteralPath $notes -PathType Leaf) -or
     [string]::IsNullOrWhiteSpace([IO.File]::ReadAllText($notes))) {
     throw "Missing or empty release notes: $notes"
 }
-Write-Host "Validated annotated release tag: $Tag ($commit)"
+Write-Host "Validated release tag: $Tag ($commit)"

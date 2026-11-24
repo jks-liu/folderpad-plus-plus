@@ -46,9 +46,14 @@ with tempfile.TemporaryDirectory(prefix='folderpad-release-tag-') as temp:
     git('commit', '-m', 'Seed release')
     commit = git('rev-parse', 'HEAD')
     tag = 'releases/v1.2.3'
-    guard(tag, False, 'annotated tag')
+    # A branch with the same name must not satisfy the tag requirement.
+    git('branch', tag)
+    guard(tag, False, 'existing tag pointing to a commit')
+    git('tag', tag, 'HEAD^{tree}')
+    guard(tag, False, 'existing tag pointing to a commit')
+    git('tag', '-d', tag)
     git('tag', tag)
-    guard(tag, False, 'annotated tag')
+    guard(tag, True, 'Validated', expected=commit)
     git('tag', '-d', tag)
     git('tag', '-a', tag, '-m', 'Release 1.2.3')
     guard(tag, True, 'Validated', expected=commit)

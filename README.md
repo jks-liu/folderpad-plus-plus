@@ -46,7 +46,7 @@ python tools/smoke-test.py
 
 ## 自动发布
 
-推送 `releases/vX.Y.Z` annotated tag 后，GitHub Actions 自动校验版本、编译 x64、运行测试、打包并发布 Release。发布说明放在 `docs/releases/X.Y.Z.md`；首次启用、操作步骤及失败恢复见 [自动发布说明](docs/automatic-release.md)。
+推送 `releases/vX.Y.Z` tag（轻量或附注标签均可） 后，GitHub Actions 自动校验版本、编译 x64、运行测试、打包并发布 Release。发布说明放在 `docs/releases/X.Y.Z.md`；首次启用、操作步骤及失败恢复见 [自动发布说明](docs/automatic-release.md)。
 
 ## 版本升级
 

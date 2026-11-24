@@ -2,7 +2,7 @@
 
 ## 作用与入口
 
-工作流位于 [`.github/workflows/release.yml`](../.github/workflows/release.yml)。向 GitHub 推送 `releases/vX.Y.Z` annotated tag 后，自动编译、测试、打包、上传附件并公开正式 Release。普通分支推送、本地创建 tag 不触发发布。
+工作流位于 [`.github/workflows/release.yml`](../.github/workflows/release.yml)。向 GitHub 推送 `releases/vX.Y.Z` tag（轻量或附注标签均可） 后，自动编译、测试、打包、上传附件并公开正式 Release。普通分支推送、本地创建 tag 不触发发布。
 
 正式发布仅提供 Windows x64。版本以 `src/version.h` 为唯一来源；CI 不修改版本、不提交代码、不创建 tag，也不自动提交 Notepad++ 官方插件列表 PR。
 
@@ -28,8 +28,8 @@ git add src/version.h docs/releases/1.2.1.md
 git commit -m "Prepare release 1.2.1"
 git push
 
-# 创建 annotated tag，只推送本次发布标签
-git tag -a releases/v1.2.1 -m "Release 1.2.1"
+# 创建普通轻量 tag，只推送本次发布标签
+git tag releases/v1.2.1
 git push origin releases/v1.2.1
 ```
 
@@ -42,14 +42,14 @@ git push origin releases/v1.2.1
 | 阶段 | 检查或操作 |
 | --- | --- |
 | 检出 | 检出触发 tag 的代码，获取完整 Git 历史及 tag；不保留 Git 推送凭据 |
-| 校验 | 必须为 annotated tag，严格命名为 `releases/vX.Y.Z`，版本与源码一致，指向当前检出及触发提交，发布说明存在且非空 |
+| 校验 | 必须为指向提交的 tag（轻量或附注均可），严格命名为 `releases/vX.Y.Z`，版本与源码一致，指向当前检出及触发提交，发布说明存在且非空 |
 | 编译 | 下载固定版本 llvm-mingw，编译 x64 DLL，运行路径模型测试 |
 | 脚本测试 | 在临时仓库中检查版本 CLI 与发布 tag 约束，不修改真实版本或 tag |
 | 打包 | 核对 DLL FileVersion/ProductVersion，生成两个 ZIP 和发布材料，校验包内 DLL、PE 位数与哈希 |
 | 上传 | 创建草稿 Release，以 `docs/releases/X.Y.Z.md` 为正文，上传全部附件 |
 | 公开 | 仅在草稿创建与附件上传命令成功后，将 Release 改为公开正式版本 |
 
-触发器的 `releases/v*.*.*` 是通配符，严格格式由 `tools/validate-release-tag.ps1` 检查。不接受 lightweight tag、前导零、预发布后缀或版本不一致；版本组件范围为 0–65535，与 Windows 版本资源约束一致。
+触发器的 `releases/v*.*.*` 是通配符，严格格式由 `tools/validate-release-tag.ps1` 检查。支持 lightweight tag 和 annotated tag；不接受前导零、预发布后缀或版本不一致；版本组件范围为 0–65535，与 Windows 版本资源约束一致。
 
 同一 tag 的运行串行执行，不自动取消正在发布的任务；单次运行最多 30 分钟。默认遇错停止；GitHub CLI 失败退出码也显式转为 PowerShell 错误，避免上传失败后继续公开。
 

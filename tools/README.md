@@ -10,7 +10,7 @@
 | smoke-test.py | 复制宿主到独立测试目录，执行跨进程真实 GUI/API 测试 | `python tools/smoke-test.py --notepad-dir "C:/Program Files/Notepad++"` |
 | package.ps1 | 将当前 x64 DLL 及对应完整源码分别打包 | `./tools/package.ps1` |
 | prepare-release.ps1 | 校验现有 ZIP、生成哈希、官方列表条目、发布说明与 PR 草稿 | `./tools/prepare-release.ps1` |
-| validate-release-tag.ps1 | 只读校验 annotated tag、源码版本、检出提交及发布说明 | `./tools/validate-release-tag.ps1 -Tag releases/v1.2.0` |
+| validate-release-tag.ps1 | 只读校验 tag、源码版本、检出提交及发布说明 | `./tools/validate-release-tag.ps1 -Tag releases/v1.2.0` |
 | plugin-admin-test.py | 隔离 Debug 宿主中测试真实插件管理器安装、移除和升级 | 见下方 |
 | validate-plugin-list.py | 用官方 schema 与 validator 校验本地发布包及名称唯一性 | 见下方 |
 | version-bump.ps1 | 默认升级 patch，可选构建打包；current 只读 | `./tools/version-bump.ps1 minor -Build` |
