@@ -7,6 +7,7 @@
 #include <shellapi.h>
 #include <filesystem>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <algorithm>
 #include "PluginInterface.h"
@@ -28,7 +29,10 @@ std::vector<Document> documents;
 std::vector<UINT_PTR> rows;
 int language = 0; // 0: host, 1: English, 2: Chinese
 bool chinese = false, visible = true, ready = false, rebuilding = false, followPending = false;
+bool reloadDocumentsPending = false, closingDocument = false;
 constexpr UINT_PTR refreshTimer = 1;
+constexpr UINT closeRowMessage = WM_APP + 1;
+constexpr int hostCloseCommand = 41003; // IDM_FILE_CLOSE in Notepad++'s menuCmdID.h
 const wchar_t* tr(const wchar_t* en, const wchar_t* zh) { return chinese ? zh : en; }
 LRESULT npp(UINT msg, WPARAM w = 0, LPARAM l = 0) { return SendMessageW(host._nppHandle, msg, w, l); }
 void error(const wchar_t* en, const wchar_t* zh) { MessageBoxW(panel ? panel : host._nppHandle, tr(en, zh), L"folderpad++", MB_OK | MB_ICONERROR); }
@@ -100,12 +104,25 @@ void layout() {
     SetWindowPos(tabs, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     RedrawWindow(panel, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
-void renderRows() {
+void selectActiveRow(UINT_PTR active) {
+    constexpr UINT state = LVIS_SELECTED | LVIS_FOCUSED;
+    auto match = std::find(rows.begin(), rows.end(), active);
+    if (match != rows.end()) {
+        auto row = static_cast<int>(match - rows.begin());
+        if (ListView_GetItemState(files, row, state) != state)
+            ListView_SetItemState(files, row, state, state);
+        return;
+    }
+    int selected = ListView_GetNextItem(files, -1, LVNI_SELECTED);
+    if (selected >= 0) ListView_SetItemState(files, selected, 0, LVIS_SELECTED);
+    int focused = ListView_GetNextItem(files, -1, LVNI_FOCUSED);
+    if (focused >= 0) ListView_SetItemState(files, focused, 0, LVIS_FOCUSED);
+}
+void renderRows(UINT_PTR active) {
     rebuilding = true;
     SendMessageW(files, WM_SETREDRAW, FALSE, 0);
     ListView_DeleteAllItems(files); rows.clear();
     int group = selectedGroup();
-    auto active = static_cast<UINT_PTR>(npp(NPPM_GETCURRENTBUFFERID));
     for (const auto& d : documents) {
         if (d.group != group) continue;
         std::wstring label = d.path;
@@ -117,8 +134,8 @@ void renderRows() {
         }
         LVITEMW item{}; item.mask = LVIF_TEXT; item.iItem = static_cast<int>(rows.size()); item.pszText = label.data();
         ListView_InsertItem(files, &item); rows.push_back(d.id);
-        if (d.id == active) ListView_SetItemState(files, item.iItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     }
+    selectActiveRow(active);
     SetWindowTextW(pathLabel, group >= 0 ? folders[group].c_str() : tr(L"Unassigned and unsaved documents", L"未归属文件和未保存文档"));
     SetWindowTextW(emptyLabel, tr(L"No open documents in this tab.", L"此标签中没有已打开的文档。"));
     EnableWindow(removeButton, group >= 0);
@@ -126,10 +143,10 @@ void renderRows() {
     SendMessageW(files, WM_SETREDRAW, TRUE, 0); InvalidateRect(files, nullptr, TRUE);
     rebuilding = false;
 }
-void refresh(bool follow) {
-    if (!panel) return;
-    int selected = selectedGroup();
-    documents.clear();
+void renderRows() { renderRows(static_cast<UINT_PTR>(npp(NPPM_GETCURRENTBUFFERID))); }
+std::vector<UINT_PTR> openBufferIds() {
+    std::vector<UINT_PTR> ids;
+    std::unordered_set<UINT_PTR> seen;
     for (int view = 0; view < 2; ++view) {
         // The hidden second view still owns a placeholder "new 1" buffer.
         // Check child visibility styles, not IsWindowVisible: the whole host
@@ -143,7 +160,21 @@ void refresh(bool follow) {
         int count = static_cast<int>(npp(NPPM_GETNBOPENFILES, 0, view + 1));
         for (int i = 0; i < count; ++i) {
             auto id = static_cast<UINT_PTR>(npp(NPPM_GETBUFFERIDFROMPOS, i, view));
-            if (!id || std::any_of(documents.begin(), documents.end(), [id](const auto& d) { return d.id == id; })) continue;
+            if (id && seen.insert(id).second) ids.push_back(id);
+        }
+    }
+    return ids;
+}
+void refresh(bool follow, bool reloadDocuments = true) {
+    if (!panel) return;
+    int selected = selectedGroup();
+    auto ids = openBufferIds();
+    // View changes can arrive as activation alone. Check buffer order before reusing the document list.
+    bool rebuild = reloadDocuments || !std::equal(ids.begin(), ids.end(), documents.begin(), documents.end(),
+        [](UINT_PTR id, const Document& d) { return id == d.id; });
+    if (rebuild) {
+        documents.clear();
+        for (auto id : ids) {
             auto len = npp(NPPM_GETFULLPATHFROMBUFFERID, id, 0);
             if (len <= 0) continue;
             std::wstring p(static_cast<size_t>(len) + 1, L'\0');
@@ -153,6 +184,12 @@ void refresh(bool follow) {
     }
     auto active = static_cast<UINT_PTR>(npp(NPPM_GETCURRENTBUFFERID));
     if (follow) for (const auto& d : documents) if (d.id == active) selected = d.group;
+    int index = selected >= 0 && selected < static_cast<int>(folders.size()) ? selected : static_cast<int>(folders.size());
+    if (!rebuild) {
+        if (index == TabCtrl_GetCurSel(tabs)) selectActiveRow(active);
+        else { TabCtrl_SetCurSel(tabs, index); layout(); renderRows(active); }
+        return;
+    }
     TabCtrl_DeleteAllItems(tabs);
     for (size_t i = 0; i <= folders.size(); ++i) {
         int group = i == folders.size() ? -1 : static_cast<int>(i);
@@ -161,8 +198,8 @@ void refresh(bool follow) {
         label += L" (" + std::to_wstring(count) + L")";
         TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = label.data(); TabCtrl_InsertItem(tabs, static_cast<int>(i), &item);
     }
-    TabCtrl_SetCurSel(tabs, selected >= 0 && selected < static_cast<int>(folders.size()) ? selected : static_cast<int>(folders.size()));
-    layout(); renderRows();
+    TabCtrl_SetCurSel(tabs, index);
+    layout(); renderRows(active);
 }
 void translate() {
     detectLanguage();
@@ -287,20 +324,25 @@ LRESULT CALLBACK tabProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l, UINT_PTR, DWOR
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, tabProc, 1);
     return DefSubclassProc(hwnd, msg, w, l);
 }
-void queueRefresh(bool follow) { if (panel) { followPending |= follow; SetTimer(panel, refreshTimer, 30, nullptr); } }
+void queueRefresh(bool follow, bool reloadDocuments = true) {
+    if (!panel) return;
+    followPending |= follow;
+    reloadDocumentsPending |= reloadDocuments;
+    SetTimer(panel, refreshTimer, 30, nullptr);
+}
+bool activateDocument(UINT_PTR id) {
+    auto view = npp(NPPM_GETCURRENTVIEW);
+    auto position = static_cast<int>(npp(NPPM_GETPOSFROMBUFFERID, id, view));
+    if (position < 0) { queueRefresh(true); return false; }
+    // Notepad++ packs the view into the high two bits of the position.
+    npp(NPPM_ACTIVATEDOC, position >> 30, position & 0x3fffffff);
+    return static_cast<UINT_PTR>(npp(NPPM_GETCURRENTBUFFERID)) == id;
+}
 void activateRow() {
     if (rebuilding) return;
     int row = ListView_GetNextItem(files, -1, LVNI_SELECTED);
     if (row < 0 || row >= static_cast<int>(rows.size())) return;
-    UINT_PTR id = rows[row]; int currentView = 0;
-    npp(NPPM_GETCURRENTSCINTILLA, 0, reinterpret_cast<LPARAM>(&currentView));
-    for (int v : {currentView, 1 - currentView}) {
-        int count = static_cast<int>(npp(NPPM_GETNBOPENFILES, 0, v + 1));
-        for (int i = 0; i < count; ++i) if (static_cast<UINT_PTR>(npp(NPPM_GETBUFFERIDFROMPOS, i, v)) == id) {
-            npp(NPPM_ACTIVATEDOC, v, i); return;
-        }
-    }
-    queueRefresh(true);
+    activateDocument(rows[row]);
 }
 void showPanel();
 void addFolder() {
@@ -373,7 +415,20 @@ INT_PTR CALLBACK dialogProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
     }
     case WM_SIZE: layout(); return TRUE;
     case WM_TIMER:
-        if (w == refreshTimer) { KillTimer(hwnd, refreshTimer); bool follow = followPending; followPending = false; refresh(follow); }
+        if (w == refreshTimer) {
+            KillTimer(hwnd, refreshTimer);
+            bool follow = followPending, reloadDocuments = reloadDocumentsPending;
+            followPending = reloadDocumentsPending = false;
+            refresh(follow, reloadDocuments);
+        }
+        return TRUE;
+    case closeRowMessage:
+        if (!closingDocument) {
+            // A modal save prompt may dispatch another queued close message.
+            closingDocument = true;
+            if (activateDocument(w)) npp(NPPM_MENUCOMMAND, 0, hostCloseCommand);
+            closingDocument = false;
+        }
         return TRUE;
     case WM_COMMAND:
         if (LOWORD(w) == 201) addFolder();
@@ -387,6 +442,15 @@ INT_PTR CALLBACK dialogProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         if (nm->code == DMN_CLOSE) { visible = false; save(); npp(NPPM_SETMENUITEMCHECK, commands[0]._cmdID, FALSE); return TRUE; }
         if (nm->hwndFrom == tabs && nm->code == TCN_SELCHANGE) { layout(); renderRows(); return TRUE; }
         if (nm->hwndFrom == files && (nm->code == NM_CLICK || nm->code == NM_DBLCLK)) { activateRow(); return TRUE; }
+        if (nm->hwndFrom == files && nm->code == NM_RCLICK) {
+            LVHITTESTINFO hit{};
+            hit.pt = reinterpret_cast<NMITEMACTIVATE*>(l)->ptAction;
+            int row = ListView_SubItemHitTest(files, &hit);
+            // Let the mouse handler finish before a possible modal save prompt.
+            if (row >= 0 && row < static_cast<int>(rows.size())) PostMessageW(hwnd, closeRowMessage, rows[row], 0);
+            SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, TRUE);
+            return TRUE;
+        }
         if (nm->hwndFrom == files && nm->code == LVN_KEYDOWN) {
             auto* key = reinterpret_cast<NMLVKEYDOWN*>(l);
             if (key->wVKey == VK_RETURN || key->wVKey == VK_SPACE) activateRow();
@@ -435,7 +499,8 @@ extern "C" __declspec(dllexport) void beNotified(SCNotification* notification) {
     case NPPN_READY: load(); detectLanguage(); ready = true; ensurePanel(); if (visible) showPanel(); else npp(NPPM_DMMHIDE, 0, reinterpret_cast<LPARAM>(panel)); break;
     case NPPN_SHUTDOWN: ready = false; if (panel) { KillTimer(panel, refreshTimer); DestroyWindow(panel); } break;
     case NPPN_NATIVELANGCHANGED: if (panel && language == 0) translate(); break;
-    case NPPN_BUFFERACTIVATED: case NPPN_FILESAVED: case NPPN_FILERENAMED: queueRefresh(true); break;
+    case NPPN_BUFFERACTIVATED: queueRefresh(true, false); break;
+    case NPPN_FILESAVED: case NPPN_FILERENAMED: queueRefresh(true); break;
     case NPPN_FILEOPENED: case NPPN_FILECLOSED: case NPPN_FILEDELETED: case NPPN_DOCORDERCHANGED: queueRefresh(false); break;
     }
 }

@@ -4,10 +4,10 @@ Notepad++ 原生插件：在左侧停靠面板中，用文件夹标签组织**�
 
 ## 使用
 
-1. 将 `folderpad++.dll` 放到 Notepad++ 安装目录下的 `plugins/folderpad++/`，重新启动 Notepad++。
+1. 解压 x64 二进制包，双击 `Install.cmd`。安装脚本会定位 Notepad++，在需要管理员权限时弹出 UAC。升级时，若提示 Notepad++ 正在运行，请保存文档、关闭对应实例后重新运行安装程序。安装完成后重新启动 Notepad++。
 2. 打开 **插件 → folderpad++ → Show / Hide panel | 显示 / 隐藏面板**。
 3. 点击“添加文件夹…”，默认定位到当前活动文件所在目录；未保存文档使用系统默认位置。选择目录后，其中已打开的文件会自动出现在对应标签。
-4. 点击列表中的文件激活文档；键盘选择后按 Enter 或空格也可以激活。
+4. 点击列表中的文件激活文档，键盘选择后按 Enter 或空格也可以激活。**右键文件行**直接关闭该行对应的文档，有未保存修改时由 Notepad++ 提示。文件同时在两个视图中打开时，每次右键关闭一个视图中的该文件，优先关闭当前视图中的副本。
 5. 在 **插件 → folderpad++ → Settings... | 设置…** 中选择跟随 Notepad++、English 或简体中文，点击“确定”保存；“取消”不改变设置。
 6. **右键文件夹标签**直接打开文件选择窗口，起始目录为该标签对应文件夹，可选择一个或多个文件交给 Notepad++ 打开。右键未选中的标签也以鼠标所在标签为准；右键空白区域无操作。“其它”没有绑定目录，使用系统文件选择窗口的默认位置。标签获得焦点后，也可按 Shift+F10 打开文件。
 7. **左键双击文件夹标签**在资源管理器中打开该目录；“其它”和标签空白区域不执行此操作。
@@ -30,9 +30,10 @@ Notepad++ 原生插件：在左侧停靠面板中，用文件夹标签组织**�
 # 在独立的便携实例内测试，不操作已有编辑器
 python tools/smoke-test.py
 
-# Program Files 目录需要管理员 PowerShell；下次启动生效
-# 更新已有插件时，先自行保存文档并关闭 Notepad++
+# 安装到匹配的 Notepad++，需要管理员权限时自动弹出 UAC
 ./tools/install.ps1
+# 也可指定自定义或便携版目录
+./tools/install.ps1 -NotepadDirectory 'C:/Apps/Notepad++'
 
 # 打包 x64 DLL 和对应源码
 ./tools/package.ps1
@@ -42,7 +43,7 @@ python tools/smoke-test.py
 
 可用 `-Arch i686` 或 `-Arch aarch64` 交叉编译其它位数；这些产物需要在对应宿主上自行验证。正式发布仅提供 Windows x64；最低支持基线为已验证的 Notepad++ 8.9.8.1，更早版本暂不声明支持。
 
-二进制 ZIP 根目录直接包含 `folderpad++.dll`，适配 Plugins Admin；手动安装时应将 DLL 放入 `plugins/folderpad++/`。发布准备运行 `./tools/prepare-release.ps1`，生成 SHA-256、官方列表条目、发布说明及 PR 草稿；公开上传后运行 `./tools/prepare-release.ps1 -VerifyPublished` 验证下载字节。脚本不上传或提交。
+二进制 ZIP 根目录包含 `folderpad++.dll`、`Install.cmd` 和 `install.ps1`。Plugins Admin 可直接读取根目录 DLL。也可以将 DLL 手动复制到 Notepad++ 安装目录下的 `plugins/folderpad++/`。发布准备运行 `./tools/prepare-release.ps1`，生成 SHA-256、官方列表条目、发布说明及 PR 草稿；公开上传后运行 `./tools/prepare-release.ps1 -VerifyPublished` 验证下载字节。脚本不上传或提交。
 
 ## 自动发布
 

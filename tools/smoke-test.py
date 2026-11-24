@@ -29,6 +29,10 @@ u.GetParent.restype = W.HWND
 u.SetWindowTextW.argtypes = [W.HWND, W.LPCWSTR]
 u.GetClassLongW.argtypes = [W.HWND, C.c_int]
 u.GetClassLongW.restype = W.DWORD
+u.GetWindowDpiAwarenessContext.argtypes = [W.HWND]
+u.GetWindowDpiAwarenessContext.restype = W.HANDLE
+u.SetThreadDpiAwarenessContext.argtypes = [W.HANDLE]
+u.SetThreadDpiAwarenessContext.restype = W.HANDLE
 u.PostMessageW.argtypes = [W.HWND, W.UINT, C.c_size_t, C.c_ssize_t]
 u.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
 u.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
@@ -88,27 +92,38 @@ class Remote:
             raise C.WinError(C.get_last_error())
         return self.address + offset
 
-    def read_text(self, offset=4096):
-        buf = C.create_string_buffer(32768)
+    def read_bytes(self, size, offset=0):
+        buf = C.create_string_buffer(size)
         if not k.ReadProcessMemory(self.handle, self.address + offset, buf, len(buf), None):
             raise C.WinError(C.get_last_error())
-        return buf.raw.decode('utf-16-le').split('\0', 1)[0]
+        return buf.raw
+
+    def read_text(self, offset=4096):
+        return self.read_bytes(32768, offset).decode('utf-16-le').split('\0', 1)[0]
 
     def click_item(self, hwnd, rect_message, index, right=False, double=False):
         self.write(bytes(16))
         assert send(hwnd, rect_message, index, self.address)
-        buf = C.create_string_buffer(16)
-        assert k.ReadProcessMemory(self.handle, self.address, buf, 16, None)
-        left, top, rect_right, bottom = struct.unpack('<4i', buf.raw)
-        point = ((top + bottom) // 2 << 16) | ((left + rect_right) // 2)
-        # ListView may enter a drag-detection loop on button-down, so post both
-        # messages before waiting for the resulting selection/activation.
-        u.PostMessageW(hwnd, 0x204 if right else 0x201, 2 if right else 1, point)
-        u.PostMessageW(hwnd, 0x205 if right else 0x202, 0, point)
-        if double:
-            assert not right, 'Double-click helper supports the left button only'
-            u.PostMessageW(hwnd, 0x203, 1, point)  # WM_LBUTTONDBLCLK
-            u.PostMessageW(hwnd, 0x202, 0, point)
+        left, top, rect_right, bottom = struct.unpack('<4i', self.read_bytes(16))
+        self.click_at(hwnd, (left + rect_right) // 2, (top + bottom) // 2, right, double)
+
+    @staticmethod
+    def click_at(hwnd, x, y, right=False, double=False):
+        point = (y << 16) | x
+        # Native control rectangles use the target window's client coordinates.
+        previous_dpi = u.SetThreadDpiAwarenessContext(u.GetWindowDpiAwarenessContext(hwnd))
+        assert previous_dpi
+        try:
+            # ListView may enter a drag-detection loop on button-down, so post both
+            # messages before waiting for the resulting selection/activation.
+            assert u.PostMessageW(hwnd, 0x204 if right else 0x201, 2 if right else 1, point)
+            assert u.PostMessageW(hwnd, 0x205 if right else 0x202, 0, point)
+            if double:
+                assert not right, 'Double-click helper supports the left button only'
+                assert u.PostMessageW(hwnd, 0x203, 1, point)  # WM_LBUTTONDBLCLK
+                assert u.PostMessageW(hwnd, 0x202, 0, point)
+        finally:
+            u.SetThreadDpiAwarenessContext(previous_dpi)
 
     def close(self):
         k.VirtualFreeEx(self.handle, self.address, 0, 0x8000)
@@ -426,6 +441,88 @@ def main():
         send(listing, 0x100, 0x0d, 0)
         wait_for(lambda: current_path() == str(paths[0]), 'Selected file did not activate')
         checks.append('Enter on file row activates the matching host buffer')
+
+        rect = W.RECT()
+        assert u.GetClientRect(listing, C.byref(rect)) and send(listing, 0x1004, 0, 0) == 1
+        remote.click_at(listing, 8, rect.bottom - 4, right=True)
+        time.sleep(.2)
+        assert row_text() == ['一.txt'], 'Right-click in blank list space closed a document'
+        checks.append('right-click in blank list space does not close anything')
+
+        for i in range(48):
+            path = project / f'list-{i:02}.txt'
+            path.write_text(path.name, encoding='utf-8')
+            assert send(hwnd, NPP + 77, 0, remote.write((str(path) + '\0').encode('utf-16-le')))
+        wait_for(lambda: send(listing, 0x1004, 0, 0) == 49, 'Long file list did not populate')
+        assert send(listing, 0x1013, 48, 0)  # LVM_ENSUREVISIBLE
+        top = send(listing, 0x1027, 0, 0)  # LVM_GETTOPINDEX
+        assert 0 < top and top + 2 < 49 and send(listing, 0x1028, 0, 0) >= 3
+        row = top + 1
+        clicked = project / row_text()[row]
+        # A native item parameter disappears if the refresh deletes and reinserts the row.
+        marker = 12345
+        assert send(listing, 0x104c, 0, remote.write(bytes(LVITEM(mask=4, item=row, param=marker))))
+        assert send(tab, 0x133d, 0, remote.write(bytes(TCITEM(mask=8, param=marker))))
+        remote.click_item(listing, 0x100e, row)
+        wait_for(lambda: current_path() == str(clicked), 'Click on a scrolled file row did not activate it')
+        time.sleep(.2)  # Wait for the coalesced host notifications.
+        assert send(listing, 0x1027, 0, 0) == top, 'File activation reset the list scroll position'
+        assert send(listing, 0x102c, row, 3) == 3, 'Clicked row lost selection or focus'
+        assert send(listing, 0x104b, 0, remote.write(bytes(LVITEM(mask=4, item=row))))
+        assert LVITEM.from_buffer_copy(remote.read_bytes(C.sizeof(LVITEM))).param == marker, 'File row was rebuilt'
+        assert send(tab, 0x133c, 0, remote.write(bytes(TCITEM(mask=8))))
+        assert TCITEM.from_buffer_copy(remote.read_bytes(C.sizeof(TCITEM))).param == marker, 'Folder tab was rebuilt'
+        checks.append('clicking a scrolled file activates it without rebuilding tabs or rows')
+
+        close_row = top + 2
+        before_close = row_text()
+        closing = project / before_close[close_row]
+        remote.click_item(listing, 0x100e, close_row, right=True)
+        wait_for(lambda: send(listing, 0x1004, 0, 0) == 48, 'Right-click did not close the file row')
+        removed = set(before_close) - set(row_text())
+        assert removed == {closing.name}, f'Right-click on {closing.name} removed {removed}'
+        assert closing.is_file(), f'Closing {closing.name} changed the file on disk'
+        checks.append('right-click closes the nonactive file under the pointer and leaves it on disk')
+
+        dirty = project / '修改待保存.txt'
+        content = b'folderpad dirty test fixture\n'
+        dirty.write_bytes(content)
+        assert send(hwnd, NPP + 77, 0, remote.write((str(dirty) + '\0').encode('utf-16-le')))
+        wait_for(lambda: send(listing, 0x1004, 0, 0) == 49, 'Dirty test file did not appear in the list')
+        editor = next(h for h in windows(hwnd) if classname(h) == 'Scintilla' and send(h, 2006, 0, 0) == len(content))
+        assert current_path() == str(dirty)
+        change = b'unsaved edit'
+        send(editor, 2282, len(change), remote.write(change))  # SCI_APPENDTEXT
+        try:
+            assert send(editor, 2159, 0, 0), 'Test document was not marked modified'  # SCI_GETMODIFY
+            row = row_text().index(dirty.name)
+            assert send(listing, 0x1013, row, 0)
+            remote.click_item(listing, 0x100e, row, right=True)
+            prompt = wait_for(lambda: owned_dialog(2), 'Closing a modified document did not prompt to save')
+            u.PostMessageW(prompt, 0x111, 2, 0)  # IDCANCEL
+            wait_for(lambda: not owned_dialog(2), 'Save prompt did not close')
+            assert current_path() == str(dirty) and dirty.name in row_text()
+            assert send(editor, 2159, 0, 0) and dirty.read_bytes() == content
+            checks.append('canceling the native save prompt keeps the modified document open')
+        finally:
+            prompt = owned_dialog(2)
+            if prompt:
+                u.PostMessageW(prompt, 0x111, 2, 0)
+                wait_for(lambda: not owned_dialog(2), 'Save prompt remained open during cleanup')
+            send(editor, 2176, 0, 0)  # SCI_UNDO
+
+        buffer_id = send(hwnd, NPP + 60, 0, 0)
+        send(hwnd, 0x111, 10002, 0)  # Clone to Other View.
+        assert send(hwnd, NPP + 57, buffer_id, 0) >> 30 == 0
+        assert send(hwnd, NPP + 57, buffer_id, 1) >> 30 == 1
+        assert send(hwnd, NPP + 88, 0, 0) == 1
+        row = row_text().index(dirty.name)
+        assert send(listing, 0x1013, row, 0)
+        remote.click_item(listing, 0x100e, row, right=True)
+        wait_for(lambda: send(hwnd, NPP + 57, buffer_id, 1) >> 30 == 0, 'Secondary view copy did not close')
+        assert row_text().count(dirty.name) == 1
+        checks.append('right-click closes the active view copy of a cloned file')
+
         report = {'passed': len(checks), 'checks': checks, 'artifacts': str(base)}
         (base / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))

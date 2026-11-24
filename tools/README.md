@@ -1,12 +1,13 @@
 # 辅助脚本
 
-在仓库根目录运行。PowerShell 脚本遇错终止；不自动申请管理员权限、不关闭用户程序。
+以下命令示例在仓库根目录运行。
 
 | 脚本 | 用途 | 示例 |
 | --- | --- | --- |
 | setup-toolchain.ps1 | 下载固定版本便携 llvm-mingw，可指定代理 | `./tools/setup-toolchain.ps1 -Proxy http://host:port` |
 | build.ps1 | 编译资源、DLL、路径测试并运行 x64 测试 | `./tools/build.ps1 -Toolchain C:/tools/llvm-mingw` |
-| install.ps1 | 核对 PE 位数后复制 DLL，已有 DLL 备份为 .bak | `./tools/install.ps1 -NotepadDirectory C:/Apps/Notepad++` |
+| Install.cmd | 可双击的安装入口，使用 Windows 自带的 PowerShell | `./tools/Install.cmd -NotepadDirectory C:/Apps/Notepad++` |
+| install.ps1 | 自动查找宿主、核对 PE 位数，按需通过 UAC 安装 | `./tools/install.ps1 -NotepadDirectory C:/Apps/Notepad++` |
 | smoke-test.py | 复制宿主到独立测试目录，执行跨进程真实 GUI/API 测试 | `python tools/smoke-test.py --notepad-dir "C:/Program Files/Notepad++"` |
 | package.ps1 | 将当前 x64 DLL 及对应完整源码分别打包 | `./tools/package.ps1` |
 | prepare-release.ps1 | 校验现有 ZIP、生成哈希、官方列表条目、发布说明与 PR 草稿 | `./tools/prepare-release.ps1` |
@@ -22,7 +23,9 @@
 
 双击目录测试调用系统 Windows PowerShell 的 Shell.Application COM 接口，核对 Explorer 的完整目录位置；仅匹配本次新建的测试路径，完成后关闭测试窗口，不输出其它目录信息。
 
-安装到 Program Files 需要管理员权限。首次安装允许宿主继续运行，下次启动加载；更新已有 DLL 时须先保存文档并关闭对应宿主。
+解压二进制 ZIP 后双击 `Install.cmd`，或在命令行运行 `install.ps1`。脚本优先使用同目录 DLL，在源码目录中使用 `build/x86_64/folderpad++.dll`，也可用 `-Dll` 指定其它构建产物。宿主优先从 Notepad++ 安装注册表查找，再检查 Program Files，便携版可用 `-NotepadDirectory` 指定。安装目录写入受限时弹出 Windows UAC。
+
+首次安装下次启动加载。升级已存在的 DLL 时，若对应实例仍在运行，脚本提示保存文档、退出后再运行安装。成功替换时保留上一个 DLL 为 `folderpad++.dll.bak`。命令行退出码 `0` 表示成功，`2` 表示 DLL 被占用或该实例仍在运行，`1` 表示其它安装错误或取消 UAC。
 
 版本命令见 README。`python tests/version_tests.py` 在临时目录验证 CLI，不改工作区版本。打包会比对 DLL ProductVersion 和 `src/version.h`，并创建独立打包目录，防止混入旧文件。
 

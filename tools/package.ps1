@@ -16,6 +16,7 @@ $source = "$stage/source"
 # Plugins Admin extracts this ZIP into plugins/folderpad++; the DLL must be at its root.
 New-Item -ItemType Directory -Force $binary, $source, "$root/dist" | Out-Null
 Copy-Item -LiteralPath "$root/build/x86_64/folderpad++.dll" -Destination "$binary/folderpad++.dll" -Force
+Copy-Item -LiteralPath "$root/tools/Install.cmd", "$root/tools/install.ps1" -Destination $binary
 Copy-Item "$root/README.md", "$root/LICENSE" $binary -Force
 foreach ($name in @('src','vendor','tests','tools','docs','.github','README.md','LICENSE','.gitignore','.gitattributes')) {
     if (Test-Path -LiteralPath "$root/$name" -PathType Container) {
